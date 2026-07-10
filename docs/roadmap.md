@@ -12,6 +12,16 @@ An autonomous desktop agent: give it a goal (optionally starting from a screensh
 - **Interface**: CLI first, web dashboard later
 - **Budget**: $0 until the harness is proven; Brain is pluggable (see ADR-0002)
 - **Perception**: hybrid — Windows UI Automation + vision (see ADR-0001)
+- **Repo**: public on GitHub from Day 0 — https://github.com/rudranaresh0201/computer-use — commit history is itself part of the record, not just the final code dump
+
+## Rigor bar (the actual "not a weekend project" contract)
+
+Modeled on how SRA VJTI's Eklavya mentorship program runs real student flagship projects — literature review before building, milestone checkpoints, public repo, final report — not just "write documented code." Concretely, for every phase below:
+
+1. **No phase is checked off without a working demo of that phase's capability** — a recorded gif/screenshot sequence or terminal transcript proving it actually runs, attached to that phase's journal entry. A checked box with no evidence doesn't count as done.
+2. **Tests are a gate, not an afterthought** — a phase with planned unit/integration tests doesn't get marked complete until they exist and pass.
+3. **Every phase gets a short written wrap-up in `docs/journal.md`** (what was built, what was learned, what broke) — not just one giant report saved for the very end.
+4. **Every commit that completes a meaningful chunk of work gets pushed** — the public commit history should read as a continuous build log, not a single dump.
 
 ## Phases
 
