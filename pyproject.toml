@@ -1,0 +1,27 @@
+[project]
+name = "computeruse"
+version = "0.1.0"
+description = "Autonomous screenshot-in, actions-out desktop agent"
+requires-python = ">=3.11"
+dependencies = [
+    "mss>=9.0.1",
+    "pyautogui>=0.9.54",
+    "pynput>=1.7.7",
+    "pywinauto>=0.6.8",
+    "pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+computeruse = "computeruse.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
