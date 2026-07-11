@@ -18,7 +18,7 @@ An autonomous desktop agent: give it a goal (optionally starting from a screensh
 
 ## Rigor bar (the actual "not a weekend project" contract)
 
-Modeled on how SRA VJTI's Eklavya mentorship program runs real student flagship projects — literature review before building, milestone checkpoints, public repo, final report — not just "write documented code." Concretely, for every phase below:
+Modeled on how the strongest mentor-guided student flagship projects actually run — literature review before building, milestone checkpoints, public repo, final report — not just "write documented code." Concretely, for every phase below:
 
 1. **No phase is checked off without a working demo of that phase's capability** — a recorded gif/screenshot sequence or terminal transcript proving it actually runs, attached to that phase's journal entry. A checked box with no evidence doesn't count as done.
 2. **Tests are a gate, not an afterthought** — a phase with planned unit/integration tests doesn't get marked complete until they exist and pass.

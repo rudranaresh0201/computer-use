@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-**Why this note exists**: after comparing computer-use against harder SRA/Eklavya projects (Waddle's RL benchmarking, AstraRTOS/TinyGPU's from-scratch systems work — see `docs/journal.md`), the gap identified wasn't subject matter, it was rigor: those projects *train and empirically benchmark something*; computer-use as originally scoped only ever calls a pretrained model. This note is the literature review for closing that gap for real, not just adding a "training phase" without grounding it in what's already known.
+**Why this note exists**: after comparing computer-use against harder peer student projects seen elsewhere (a bipedal-locomotion RL benchmarking project, from-scratch systems/hardware projects — see `docs/journal.md`), the gap identified wasn't subject matter, it was rigor: those projects *train and empirically benchmark something*; computer-use as originally scoped only ever calls a pretrained model. This note is the literature review for closing that gap for real, not just adding a "training phase" without grounding it in what's already known.
 
 ## What "GUI grounding" means, precisely
 
@@ -32,11 +32,11 @@ SeeClick trained on ~1M examples; UGround on 1.3M screenshots. We are not attemp
 
 This is small by industry-paper standards and that's fine and worth saying plainly: the goal is a genuine, honest, correctly-methodologied contribution at solo-project scale, not a claim to beat published research at its own scale.
 
-## Comparable Eklavya/SRA project: ViReL
+## A comparable peer project
 
-After surveying all 18 Eklavya 2026 projects (not just Waddle/AstraRTOS/TinyGPU), the closest structural cousin to this phase is **ViReL**: "Fine-tune Vision-Language Models using Reinforcement Learning from scratch, covering VLM architecture, reward design, GRPO training loops, and evaluation on standard benchmarks." Same general activity (fine-tuning a VLM, real training loop, real eval), different method (RL/GRPO vs. our supervised LoRA fine-tuning) and different data source (their own architecture/benchmark work vs. our UIA-auto-labeled native-Windows dataset).
+Among a broader survey of peer student projects seen elsewhere, the closest structural cousin to this phase is one that fine-tunes vision-language models using reinforcement learning from scratch — covering VLM architecture, reward design, GRPO training loops, and evaluation on standard benchmarks. Same general activity as this phase (fine-tuning a VLM, real training loop, real eval), different method (RL/GRPO vs. our supervised LoRA fine-tuning) and different data source (a general architecture/benchmark exercise vs. our UIA-auto-labeled native-Windows dataset).
 
-Notably, GRPO-based RL fine-tuning for GUI grounding specifically is real, current literature too (e.g. "GRPO for GUI Grounding Done Right," Hugging Face blog/OpenReview's SE-GUI). That means there's an honest, citable stretch goal sitting on top of this phase's base plan: get supervised LoRA fine-tuning working first end-to-end (the committed plan), and *if* time allows afterward, a GRPO-based RL fine-tuning pass on the same UIA-sourced dataset would be the more advanced version — directly comparable to ViReL's approach, applied to the novel data source instead of a generic benchmark. Not committed scope yet, worth revisiting once the base version works.
+Notably, GRPO-based RL fine-tuning for GUI grounding specifically is real, current literature too (e.g. "GRPO for GUI Grounding Done Right," Hugging Face blog/OpenReview's SE-GUI). That means there's an honest, citable stretch goal sitting on top of this phase's base plan: get supervised LoRA fine-tuning working first end-to-end (the committed plan), and *if* time allows afterward, a GRPO-based RL fine-tuning pass on the same UIA-sourced dataset would be the more advanced version — directly comparable to that peer project's approach, applied to the novel data source instead of a generic benchmark. Not committed scope yet, worth revisiting once the base version works.
 
 ## Sources
 - SeeClick: https://arxiv.org/abs/2401.10935

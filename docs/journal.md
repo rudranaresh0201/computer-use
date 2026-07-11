@@ -49,7 +49,7 @@ One entry per working session. Short is fine — the point is a record of what h
 
 ## 2026-07-11 — Scope decision: adding a real trained-and-benchmarked research core
 
-**Context**: compared computer-use honestly against harder Eklavya/SRA projects — specifically Waddle (RL locomotion, benchmarks PPO vs SAC empirically) and AstraRTOS/TinyGPU (from-scratch systems/hardware work). The honest gap identified wasn't subject matter, it was rigor: as scoped through Phase 0-2, computer-use only ever *calls* a pretrained model, it never trains or empirically benchmarks anything of its own — unlike Waddle.
+**Context**: compared computer-use honestly against harder peer student projects seen elsewhere — specifically a bipedal-locomotion RL project (benchmarks PPO vs SAC empirically) and from-scratch systems/hardware projects (a custom RTOS, a custom parallel processor). The honest gap identified wasn't subject matter, it was rigor: as scoped through Phase 0-2, computer-use only ever *calls* a pretrained model, it never trains or empirically benchmarks anything of its own.
 
 **Decision made, and why not a domain pivot instead**: considered switching to RL or embedded/hardware work to chase that same rigor, rejected it — starting cold in a discipline with zero prior experience (no RL, no embedded systems background beyond the EE degree) would set the project back, not forward, and would break coherence with the rest of the portfolio (RAG, LangGraph, agentic AI — all genuinely earned expertise). Chose instead to raise computer-use's own rigor ceiling without leaving its lane.
 

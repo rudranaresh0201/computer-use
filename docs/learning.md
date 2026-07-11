@@ -24,5 +24,5 @@ Fine-tuning a *pretrained multimodal model* is a different exercise from trainin
 ## Explicit non-goals
 
 - No neural-network-basics material — already known.
-- No RL — not part of this project (ADR-0003 explicitly notes the Brain is a foundation-model reasoner, not a trained policy; that's a deliberate contrast with RL-based approaches like the Waddle project, not a gap to fill).
+- No RL — not part of this project (ADR-0003 explicitly notes the Brain is a foundation-model reasoner, not a trained policy; that's a deliberate contrast with RL-based control approaches seen elsewhere, not a gap to fill).
 - No deep-math derivation of attention/backprop — useful only if it starts blocking a specific decision, not proactively.
