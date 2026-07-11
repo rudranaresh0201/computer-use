@@ -30,18 +30,21 @@ Modeled on how SRA VJTI's Eklavya mentorship program runs real student flagship 
   - ADR-0001 (hybrid perception), ADR-0002 (brain abstraction + cost strategy)
   - Repo scaffolded, Python project initialized
   - No-LLM PoC: screenshot capture (mss) + programmatic mouse move (pyautogui) confirmed working
-- [ ] **Phase 1 (weeks 2–3) — Core harness: "hands and eyes"**
-  - Screenshot module w/ resize + coordinate scale-back
-  - Input controller (mouse/keyboard)
-  - Windows UI Automation integration (pywinauto)
-  - Typed `Action` schema
-  - Safety layer: allow-list, rate limit, kill-switch, action logging
-  - Unit tests, no LLM involved
+- [x] **Phase 1 (2026-07-10) — Core harness: "hands and eyes"**
+  - Screenshot module w/ resize + coordinate scale-back (`perception/screenshot.py`)
+  - Input controller (`action/controller.py`, pyautogui)
+  - Windows UI Automation integration (`perception/uia.py`, pywinauto)
+  - Typed `Action` schema (`action/schema.py`)
+  - Safety layer: allow-list, rate limit, kill-switch, action logging (`safety.py`)
+  - 28 unit tests, all passing
+  - Real end-to-end demo (`scripts/phase1_demo.py`) — see the 2026-07-10 incident + fix writeup in `docs/journal.md`, a real lesson on verifying targets before acting, not just a formality
 - [ ] **Phase 2 (weeks 4–5) — Agent loop skeleton, brain mocked**
-  - `Brain` interface defined
+  - Built as a **LangGraph StateGraph** (`perceive` → `decide` → `act`, conditional loop/end) rather than a hand-rolled loop — deliberate choice to match existing production LangGraph experience (PRGuard, Aria). Will get its own ADR-0003.
+  - `Brain` interface defined (the `decide` node)
   - Scripted/fake Brain for free integration testing
-  - Orchestrator loop with max-steps/timeout guardrails
+  - Max-steps/timeout guardrails
   - CLI: `computeruse run "<goal>"`
+  - Built one node at a time, each checked before wiring the next — not assembled in one shot
 - [ ] **Phase 3 (weeks 6–8) — Real brain, budget-aware**
   - Local free VLM backend (Ollama)
   - Claude backend (computer-use tool), used sparingly, cost logged
