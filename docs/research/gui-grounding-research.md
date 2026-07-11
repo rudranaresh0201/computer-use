@@ -32,6 +32,12 @@ SeeClick trained on ~1M examples; UGround on 1.3M screenshots. We are not attemp
 
 This is small by industry-paper standards and that's fine and worth saying plainly: the goal is a genuine, honest, correctly-methodologied contribution at solo-project scale, not a claim to beat published research at its own scale.
 
+## Comparable Eklavya/SRA project: ViReL
+
+After surveying all 18 Eklavya 2026 projects (not just Waddle/AstraRTOS/TinyGPU), the closest structural cousin to this phase is **ViReL**: "Fine-tune Vision-Language Models using Reinforcement Learning from scratch, covering VLM architecture, reward design, GRPO training loops, and evaluation on standard benchmarks." Same general activity (fine-tuning a VLM, real training loop, real eval), different method (RL/GRPO vs. our supervised LoRA fine-tuning) and different data source (their own architecture/benchmark work vs. our UIA-auto-labeled native-Windows dataset).
+
+Notably, GRPO-based RL fine-tuning for GUI grounding specifically is real, current literature too (e.g. "GRPO for GUI Grounding Done Right," Hugging Face blog/OpenReview's SE-GUI). That means there's an honest, citable stretch goal sitting on top of this phase's base plan: get supervised LoRA fine-tuning working first end-to-end (the committed plan), and *if* time allows afterward, a GRPO-based RL fine-tuning pass on the same UIA-sourced dataset would be the more advanced version — directly comparable to ViReL's approach, applied to the novel data source instead of a generic benchmark. Not committed scope yet, worth revisiting once the base version works.
+
 ## Sources
 - SeeClick: https://arxiv.org/abs/2401.10935
 - UGround: https://osu-nlp-group.github.io/UGround/
