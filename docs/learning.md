@@ -1,31 +1,28 @@
-# Learning Track (zero math/ML background)
+# Learning Track
 
-Goal: understand *why* the system we're building works, not become an ML researcher. No math background assumed. This track is sequenced to unlock exactly when you need it in `docs/roadmap.md` — don't front-load all of it, you'll forget it before it's relevant. Watch/read the entry for a phase around the time we start that phase.
+Rewritten 2026-07-11 — the original version of this file assumed zero ML background, which was wrong (see `docs/journal.md` and project memory). This version is matched to actual production-level fluency: RAG, LangGraph/CrewAI multi-agent systems, PyTorch (LSTM and transformer models already trained and shipped), MCP. No 101-level material below — if something here feels like it needs a beginner explanation first, that's a signal to say so, not a gap this file should pre-fill.
 
-## Before Phase 0 is "done" (this week) — the absolute minimum
-You need one mental model: **a model like Claude takes in text + images and predicts what comes next, one piece at a time; "tool use" is just the model predicting a structured piece of text that your code interprets as an instruction ("click here") instead of showing it to a human.** That's it — that's the whole trick behind computer-use. Everything else is engineering around that one fact (how do you get a screenshot to it, how do you turn its answer into a real mouse click, how do you keep it from going in circles).
+## What's actually new, and when it's needed
 
-- **Andrej Karpathy — "Deep Dive into LLMs like ChatGPT"** (YouTube, ~3.5 hrs, free). Covers the full stack of how these models work and are used, no math background required. This single video is enough context to understand every design decision in `docs/decisions/`.
-- **3Blue1Brown — "But what is a Neural Network?"** (YouTube, ~20 min). Pure visual intuition, zero equations required to follow it. Answers "what is actually happening inside the box."
+Everything through Phase 2 (LangGraph orchestrator) is inside existing expertise — no assigned reading, build first, read only if something specific comes up mid-build.
 
-You do not need to understand backpropagation, gradient descent, or any training math to build this project — we are only ever *calling* pretrained models via an API or a local runtime, never training one. Skip anything that starts talking about "loss functions" or "optimizers" for now; it's not blocking us.
+**Before Phase 3 (GUI grounding model) — this is the genuinely new territory:**
 
-## Before Phase 2 (agent loop) — what "the loop" actually is
-- **3Blue1Brown — visual intro to Transformers/attention** (YouTube). Gives you enough to understand *why* the model can "look at" a screenshot and a block of instruction text together and reason about both — this is what makes multimodal tool-use possible at all.
-- Re-read `docs/research/anthropic-computer-use.md` "The core loop" section after watching these two — it should read as obvious mechanics rather than magic.
+Fine-tuning a *pretrained multimodal model* is a different exercise from training the LSTM/transformer-WAF models already shipped — those were trained from scratch (or near it) on a defined task; this is adapting an existing large VLM's behavior efficiently, without retraining its whole weight set.
 
-## Before Phase 3 (real brain integration) — vision models & grounding
-This is where "why is clicking the right pixel hard" becomes concrete.
-- **StatQuest (Josh Starmer) — any of the "Neural Networks" or "Image Recognition" playlist videos.** Best plain-English explanations on YouTube of how a model turns pixels into "this is a button" style understanding.
-- Skim `docs/research/prior-art.md` again, specifically the OmniParser and OSWorld sections — the "grounding is the hard part, not planning" finding will make much more sense once you've seen how vision models actually process an image (as a grid of small learned features, not as a picture the way you see it).
-- Optional deeper dive if curious: **Karpathy — "Neural Networks: Zero to Hero"** series (karpathy.ai/zero-to-hero.html) actually builds things by hand in code, including calculus-lite backprop. Good if you want to eventually understand training, not required to keep building this project.
+- **LoRA (Low-Rank Adaptation) — the original paper** (Hu et al., "LoRA: Low-Rank Adaptation of Large Language Models"). The technique SeeClick/UGround/OS-Atlas all use to fine-tune their base VLM. Short, mechanism is simple once seen: freeze the pretrained weights, inject small trainable low-rank matrices alongside them, train only those. Worth reading the actual mechanism, not just "LoRA = cheap fine-tuning," since Phase 3's training script will directly implement this.
+- **A practical LoRA fine-tuning walkthrough for a vision-language model** (HuggingFace's PEFT library docs + a Qwen2-VL or similar small-VLM fine-tuning example notebook). This is the one to actually read closely before writing Phase 3's training script — it's the difference between understanding LoRA in theory and knowing what the actual training loop, data format, and hyperparameters look like in practice.
+- **Re-read `docs/research/gui-grounding-research.md`** (already written) — specifically the documented data-quality problem (accessibility-tree elements that exist structurally but aren't visually rendered). This directly shapes the dataset-collection tool's filtering logic before any training happens.
 
-## Ongoing / reference, dip in as needed
-- **mlabonne/llm-course** (GitHub) — structured, free, roadmap-style course covering LLM fundamentals through fine-tuning/deployment. Good as a table of contents to search when a specific term in a paper confuses you (e.g. "what's a token", "what's an embedding").
-- **DeepLearning.AI short courses** — free, ~1 hour each, very applied (prompting, agents, evals). Good for Phase 4/6 when we build the eval suite and want to know what "a good agent eval" looks like elsewhere.
+**Optional, if curious about where GUI-Actor's coordinate-free approach came from:** the attention/transformer mechanics under "region proposal" style grounding vs. raw coordinate regression — not required to build Phase 3's first version, only relevant if raw-coordinate fine-tuning proves noisy and a fallback approach is needed.
 
-## Explicit non-goals for this learning track
-- No linear algebra / calculus needed to *use* these models via API — that math lives inside the model, which is already trained. We'd only need it if we were training our own model from scratch, which is out of scope for this project.
-- No need to learn a deep-learning framework (PyTorch/TensorFlow) unless a later phase specifically calls for running a local model in a way that needs custom code (unlikely — Ollama abstracts this away for Phase 3).
+## Ongoing reference, not sequenced
 
-Sources: [Karpathy Zero-to-Hero](https://karpathy.ai/zero-to-hero.html), 3Blue1Brown & StatQuest (YouTube, search channel name), [mlabonne/llm-course](https://github.com/mlabonne/llm-course).
+- **mlabonne/llm-course** (GitHub) — useful as a lookup table for any term that comes up mid-build without a clear definition, not a start-to-finish read.
+- **Anthropic's engineering blog**, **simonwillison.net** — worth checking periodically as the agent/GUI-automation space moves; not project-blocking reading.
+
+## Explicit non-goals
+
+- No neural-network-basics material — already known.
+- No RL — not part of this project (ADR-0003 explicitly notes the Brain is a foundation-model reasoner, not a trained policy; that's a deliberate contrast with RL-based approaches like the Waddle project, not a gap to fill).
+- No deep-math derivation of attention/backprop — useful only if it starts blocking a specific decision, not proactively.
