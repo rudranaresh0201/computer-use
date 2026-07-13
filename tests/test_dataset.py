@@ -8,7 +8,32 @@ one-off check against a real collected image, not in this suite.
 
 import torch
 
-from computeruse.training.dataset import IGNORE_INDEX, collate_fn, mask_prompt_tokens
+from computeruse.training.dataset import IGNORE_INDEX, collate_fn, mask_prompt_tokens, resolve_path
+
+
+def test_resolve_path_prefers_the_real_nested_path(tmp_path):
+    nested = tmp_path / "images" / "calculator" / "calculator_0000.png"
+    nested.parent.mkdir(parents=True)
+    nested.write_bytes(b"fake png")
+
+    assert resolve_path(tmp_path, "images/calculator/calculator_0000.png") == nested
+
+
+def test_resolve_path_falls_back_to_flat_basename_lookup(tmp_path):
+    # simulates Kaggle's uploader flattening images/calculator/foo.png -> foo.png
+    flat = tmp_path / "calculator_0000.png"
+    flat.write_bytes(b"fake png")
+
+    found = resolve_path(tmp_path, "images/calculator/calculator_0000.png")
+    assert found == flat
+
+
+def test_resolve_path_raises_clearly_when_neither_exists(tmp_path):
+    try:
+        resolve_path(tmp_path, "images/calculator/calculator_0000.png")
+        assert False, "expected FileNotFoundError"
+    except FileNotFoundError as exc:
+        assert "calculator_0000.png" in str(exc)
 
 
 def test_mask_prompt_tokens_masks_everything_before_prompt_len():

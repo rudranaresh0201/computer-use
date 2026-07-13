@@ -20,7 +20,7 @@ from pathlib import Path
 from peft import get_peft_model
 from transformers import AutoModelForImageTextToText, AutoProcessor, Trainer, TrainingArguments
 
-from .dataset import GroundingDataset, collate_fn
+from .dataset import GroundingDataset, collate_fn, resolve_path
 from .lora_config import build_lora_config
 
 MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
@@ -53,10 +53,10 @@ def build_trainer(dataset_root: Path, output_dir: Path) -> Trainer:
     model.print_trainable_parameters()
 
     train_dataset = GroundingDataset(
-        dataset_root / "splits" / "train.jsonl", dataset_root, processor, processor.tokenizer
+        resolve_path(dataset_root, "splits/train.jsonl"), dataset_root, processor, processor.tokenizer
     )
     eval_dataset = GroundingDataset(
-        dataset_root / "splits" / "dev.jsonl", dataset_root, processor, processor.tokenizer
+        resolve_path(dataset_root, "splits/dev.jsonl"), dataset_root, processor, processor.tokenizer
     )
 
     return Trainer(

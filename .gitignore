@@ -18,3 +18,4 @@ data/gui_grounding/labels.jsonl
 data/gui_grounding/progress.json
 data/gui_grounding/splits/
 !data/gui_grounding/sample/
+data/gui_grounding_v1.zip

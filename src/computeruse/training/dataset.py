@@ -21,6 +21,17 @@ prompt length must be computed by running the *same processor* over the
 *same image* on the prompt-only text, not by tokenizing text alone --
 otherwise the mask boundary lands in the wrong place relative to the
 actual expanded token sequence.
+
+A third, environment-specific pitfall: Kaggle's web dataset uploader was
+observed (2026-07-13, twice, with a correctly-built zip using forward
+slashes) to flatten nested folders -- `images/calculator/foo.png` lands
+as just `foo.png` at the dataset root, same for `splits/*.jsonl`. Rather
+than depend on an upload UI we don't control behaving, `resolve_path`
+below tries the real nested relative path first and falls back to a
+basename-only lookup under `dataset_root` if that path doesn't exist --
+safe because every screenshot filename already embeds its app name
+(`calculator_0000.png`), so basenames are unique across the whole
+dataset even without the folder structure.
 """
 
 from __future__ import annotations
@@ -54,6 +65,25 @@ def mask_prompt_tokens(input_ids: list[int], prompt_len: int) -> list[int]:
     return [IGNORE_INDEX] * prompt_len + list(input_ids[prompt_len:])
 
 
+def resolve_path(dataset_root: Path, relative_path: str) -> Path:
+    """Prefer the real nested path; fall back to a basename-only lookup
+    under dataset_root if the platform flattened the folder structure
+    (see module docstring). Raises with both attempted paths if neither
+    exists, so a genuinely missing file fails loudly, not silently."""
+    nested = dataset_root / relative_path
+    if nested.exists():
+        return nested
+
+    flat = dataset_root / Path(relative_path).name
+    if flat.exists():
+        return flat
+
+    raise FileNotFoundError(
+        f"could not find {relative_path!r} under {dataset_root} -- tried "
+        f"{nested} (nested) and {flat} (flat fallback)"
+    )
+
+
 def _load_examples(jsonl_path: Path) -> list[TrainingExample]:
     examples = []
     with jsonl_path.open("r", encoding="utf-8") as f:
@@ -82,7 +112,8 @@ class GroundingDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         example = self.examples[idx]
-        image = Image.open(self.dataset_root / example.image_path).convert("RGB")
+        image_path = resolve_path(self.dataset_root, example.image_path)
+        image = Image.open(image_path).convert("RGB")
         conversation = to_conversation(example)
 
         full_text = self.tokenizer.apply_chat_template(conversation, tokenize=False)
