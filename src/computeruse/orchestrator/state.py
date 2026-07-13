@@ -21,3 +21,4 @@ class AgentState(TypedDict):
     action_history: list[Action]
     done: bool
     step_count: int
+    consecutive_failures: int
