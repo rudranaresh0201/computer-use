@@ -17,6 +17,14 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+# chat-template formatting only (training/chat_format.py) -- verifying
+# prompt structure against the real tokenizer, not running the model. The
+# actual LoRA training run needs torch/peft/a GPU and happens on Kaggle/
+# Colab (ADR-0003's $0-budget commitment), not from this list.
+training = [
+    "transformers>=4.45.0",
+    "jinja2>=3.1.0",
+]
 
 [project.scripts]
 computeruse = "computeruse.cli:main"

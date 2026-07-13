@@ -16,4 +16,5 @@ runs/
 # tracked; images/labels/progress are generated data, not source.
 data/gui_grounding/labels.jsonl
 data/gui_grounding/progress.json
+data/gui_grounding/splits/
 !data/gui_grounding/sample/
