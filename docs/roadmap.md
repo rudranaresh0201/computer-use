@@ -41,16 +41,20 @@ Modeled on how the strongest mentor-guided student flagship projects actually ru
   - Safety layer: allow-list, rate limit, kill-switch, action logging (`safety.py`)
   - 28 unit tests, all passing
   - Real end-to-end demo (`scripts/phase1_demo.py`) — see the 2026-07-10 incident + fix writeup in `docs/journal.md`, a real lesson on verifying targets before acting, not just a formality
-- [ ] **Phase 2 (weeks 2–3) — Agent loop skeleton, brain mocked**
+- [x] **Phase 2 (2026-07-12) — Agent loop skeleton, brain mocked**
   - Built as a **LangGraph StateGraph** (`perceive` → `decide` → `act`, conditional loop/end) rather than a hand-rolled loop — deliberate choice to match existing production LangGraph experience (PRGuard, Aria). See ADR-0004.
-  - `Brain` interface defined (the `decide` node)
-  - Scripted/fake Brain for free integration testing
-  - Max-steps/timeout guardrails
-  - CLI: `computeruse run "<goal>"`
+  - `Brain` interface defined (the `decide` node) + `ScriptedBrain` for free integration testing
+  - `act` executes via the Phase 1 controller, then re-perceives and diffs before/after screenshots — the direct structural fix for the Phase 1 incident (see `docs/research/agent-loop-architecture.md`)
+  - Two independent stop conditions wired as the conditional edge after `act`: the Brain's self-declared `DONE`, and a circuit breaker (`step_count` ceiling, `consecutive_failures` ceiling) that overrides it regardless — never trusting self-declared "done" alone
+  - CLI: `computeruse run "<goal>"` — runs the real graph end-to-end (verified: `computeruse run "test goal"` → 1 step, done=True)
+  - 11 new unit tests (39 total passing) covering `ScriptedBrain`, `decide`, `act`, and the routing logic
   - Built one node at a time, each checked before wiring the next — not assembled in one shot
 - [ ] **Phase 3 (weeks 4–9) — GUI Grounding Model: the research core** (ADR-0003)
   - Literature review: SeeClick, UGround, OS-Atlas, GUI-Actor — done, `docs/research/gui-grounding-research.md`
-  - Extend `perception/uia.py` into a dataset-collection tool: walk a deliberate spread of common native Windows apps, auto-label (screenshot, element, bounding box, instruction) triples from UIA, filter for actually-visible elements (not just tree presence — a documented failure mode in the literature)
+  - Pre-registered hypotheses H1/H2/H3 — done, `docs/research/gui-grounding-hypothesis.md`
+  - Dataset design (14-app registry, 4 splits, schema, filtering rules) — done, `docs/research/gui-grounding-dataset-design.md`
+  - Collector (`dataset/collector.py`), app registry (`dataset/registry.py`), driving orchestrator (`dataset/orchestrator.py`), `computeruse collect-dataset` CLI — built and tested (2026-07-12/13)
+  - Dataset collection: **8/14 registry apps collected as of 2026-07-13** (528 labeled examples, 21 screenshots, 0 integrity issues per `scripts/inspect_dataset.py`, all 4 splits populated, richness sanity check passes). 6 apps blocked by real environment constraints this session — not yet training-ready by the pre-registered volume target (21/210 screenshots); held-out pool especially thin (1 of 4 apps). See `docs/journal.md` 2026-07-13 entry.
   - Curate a held-out split: some apps/element-types excluded from training, reserved for evaluating generalization, not memorization
   - Fine-tune a small open VLM (candidate: Qwen2-VL-2B class) via LoRA on the curated dataset, using free-tier cloud GPU quota (Kaggle/Colab)
   - Evaluation: a real ablation — our fine-tuned grounder vs. zero-shot VLM prompting vs. UIA-only vs. the hybrid — on the held-out set, reported honestly including if it doesn't clearly win

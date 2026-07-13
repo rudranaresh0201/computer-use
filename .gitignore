@@ -10,3 +10,10 @@ dist/
 runs/
 *.png
 !docs/**/*.png
+
+# generated dataset collection artifacts (Phase 3) — apps.yaml (the
+# registry) and README.md (the dataset card) are config/docs and stay
+# tracked; images/labels/progress are generated data, not source.
+data/gui_grounding/labels.jsonl
+data/gui_grounding/progress.json
+!data/gui_grounding/sample/

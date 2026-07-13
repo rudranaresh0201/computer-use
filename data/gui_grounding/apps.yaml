@@ -1,0 +1,286 @@
+# App registry for dataset collection (Phase 3, ADR-0003).
+#
+# Schema consumed by src/computeruse/dataset/registry.py. App list, pools,
+# and richness labels match the table in
+# docs/research/gui-grounding-dataset-design.md. Per-app state lists are a
+# first cut, not a final design — the design doc explicitly leaves "exact
+# per-app state list" as a collection-tool implementation detail to be
+# refined once the tool exists (which it now does).
+#
+# Drive step kinds (see registry.DriveStep):
+#   key           -- text: a pyautogui-style key combo, e.g. "ctrl+f"
+#   type          -- text: literal text to type
+#   click_element -- name/control_type: found via UIA in the current window,
+#                    center is clicked (no hardcoded pixel coordinates)
+#   wait          -- duration_seconds: pause
+#
+# VLC / GIMP / Audacity / Notepad++ need a one-time install (per the design
+# doc) and their `launch.target` paths below are the common default install
+# locations — if not installed on a given machine, the orchestrator logs the
+# launch failure for that app and moves on to the next one.
+
+apps:
+  - name: notepad
+    pool: train
+    richness: rich
+    launch: {method: exe, target: notepad.exe}
+    window_title_contains: "Notepad"
+    states:
+      - name: empty_document
+        split: train
+        steps: []
+      - name: with_text
+        split: train
+        steps:
+          - {kind: type, text: "The quick brown fox jumps over the lazy dog."}
+      - name: find_dialog
+        split: dev
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "ctrl+f"}
+      - name: save_as_dialog
+        split: test_same_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+shift+s"}
+
+  - name: calculator
+    pool: train
+    richness: rich
+    launch: {method: exe, target: calc.exe}
+    window_title_contains: "Calculator"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: after_input
+        split: train
+        steps:
+          - {kind: type, text: "12345"}
+      - name: scientific_mode
+        split: dev
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "alt+2"}
+      - name: history_pane
+        split: test_same_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "ctrl+h"}
+
+  - name: file_explorer
+    pool: train
+    richness: rich
+    launch: {method: exe, target: explorer.exe}
+    window_title_contains: "File Explorer"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: address_bar_focused
+        split: train
+        steps:
+          - {kind: key, text: "ctrl+l"}
+      - name: search_box_focused
+        split: dev
+        steps:
+          - {kind: key, text: "ctrl+e"}
+      - name: details_pane
+        split: test_same_app
+        steps:
+          - {kind: key, text: "alt+shift+p"}
+
+  - name: settings
+    pool: train
+    richness: rich
+    launch: {method: shell, target: "ms-settings:"}
+    window_title_contains: "Settings"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: search_focused
+        split: dev
+        steps:
+          # name is empty string for this control (only automation_id is
+          # stable) -- same placeholder-name pattern as Control Panel's
+          # search box; found via live inspection, 2026-07-13.
+          - {kind: click_element, automation_id: CommandSearchTextBox}
+
+  - name: task_manager
+    pool: train
+    richness: rich
+    # KNOWN LIMITATION (2026-07-13): taskmgr.exe launches (confirmed via
+    # subprocess poll) but never produces a foreground window matching
+    # "Task Manager" in this automation environment, unlike every plain
+    # Win32 app in this registry (Notepad, Calculator, Control Panel).
+    # Windows 11's Task Manager is COM/broker-activated rather than a
+    # direct window creation, and that activation path appears to fail
+    # silently under this session. Not retried further; see docs/journal.md.
+    launch: {method: exe, target: taskmgr.exe}
+    window_title_contains: "Task Manager"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: performance_tab
+        split: train
+        steps:
+          - {kind: key, text: "ctrl+2"}
+      - name: details_tab
+        split: dev
+        steps:
+          - {kind: key, text: "ctrl+5"}
+
+  - name: control_panel
+    pool: train
+    richness: rich
+    launch: {method: exe, target: control.exe}
+    window_title_contains: "Control Panel"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: search_focused
+        split: dev
+        steps:
+          # name is a placeholder "\r" for this control, not real text --
+          # matched by automation_id instead (found via live inspection,
+          # 2026-07-13; see docs/journal.md)
+          - {kind: click_element, automation_id: SearchEditBox}
+
+  - name: paint
+    pool: train
+    richness: weak
+    launch: {method: exe, target: mspaint.exe}
+    window_title_contains: "Paint"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: tool_selected
+        split: dev
+        steps:
+          - {kind: key, text: "b"}
+
+  - name: windows_terminal
+    pool: train
+    richness: weak
+    # KNOWN LIMITATION (2026-07-13): wt.exe launches, but the visible
+    # top-level window it produces is titled after the shell running in the
+    # default tab ("Windows PowerShell" on this machine), never "Terminal" --
+    # confirmed via live inspection. Same MSIX-packaged-app activation
+    # quirk as task_manager, not just a title-string mismatch: window_class
+    # is CASCADIA_HOSTING_WINDOW_CLASS reliably, but window_title_contains
+    # is matched by title text only. Not retried further; see docs/journal.md.
+    launch: {method: exe, target: wt.exe}
+    window_title_contains: "Terminal"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: new_tab
+        split: dev
+        steps:
+          - {kind: key, text: "ctrl+shift+t"}
+
+  - name: vlc
+    pool: train
+    richness: weak
+    launch: {method: exe, target: "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe"}
+    window_title_contains: "VLC"
+    states:
+      - name: default
+        split: train
+        steps: []
+      - name: open_dialog
+        split: dev
+        steps:
+          - {kind: key, text: "ctrl+o"}
+
+  - name: gimp
+    pool: train
+    richness: weak
+    # installed 2026-07-13 via winget as GIMP 3.2.4, per-user install (no
+    # admin needed) -- actual path differs from the GIMP 2.10 path assumed
+    # when this registry was first drafted.
+    launch: {method: exe, target: "C:\\Users\\Rudra\\AppData\\Local\\Programs\\GIMP 3\\bin\\gimp-3.exe"}
+    # real window title is "GNU Image Manipulation Program", not "GIMP" --
+    # "GIMP" only ever matches its ~20s "GIMP Startup" splash window, which
+    # is a different top-level window entirely (found via live inspection,
+    # 2026-07-13). launch_timeout_seconds raised past the splash duration.
+    window_title_contains: "Manipulation Program"
+    launch_timeout_seconds: 30.0
+    # KNOWN LIMITATION (2026-07-13): even with the title/timeout fix above,
+    # the process exits cleanly (exit code 0) 5-15s after launch in this
+    # environment -- confirmed over 2 attempts, once after briefly showing
+    # its real window, once without showing it at all. Likely a GTK
+    # rendering/display-access issue specific to this automation session,
+    # not a registry config bug. Not retried further; see docs/journal.md.
+    states:
+      - name: default
+        split: train
+        steps: []
+
+  - name: device_manager
+    pool: held_out
+    richness: rich
+    # KNOWN LIMITATION (2026-07-13): launch fails outright with
+    # WinError 740 ("The requested operation requires elevation") --
+    # devmgmt.msc needs an admin token and this collection account is a
+    # standard (non-admin) user. Not something an automated script should
+    # bypass (would mean silently working around UAC); needs either running
+    # the collector from an elevated session, or a different account.
+    launch: {method: exe, target: mmc.exe, args: ["devmgmt.msc"]}
+    window_title_contains: "Device Manager"
+    states:
+      - name: default
+        split: test_held_out_app
+        steps: []
+      - name: category_expanded
+        split: test_held_out_app
+        steps:
+          - {kind: key, text: "right"}
+
+  - name: character_map
+    pool: held_out
+    richness: rich
+    launch: {method: exe, target: charmap.exe}
+    window_title_contains: "Character Map"
+    states:
+      - name: default
+        split: test_held_out_app
+        steps: []
+
+  - name: audacity
+    pool: held_out
+    richness: weak
+    # KNOWN LIMITATION (2026-07-13): not installed. winget install
+    # (Audacity.Audacity) triggered a UAC elevation prompt with nobody
+    # present to approve it, so the install was cancelled by Windows after
+    # timing out. Needs either an interactive session to click through the
+    # UAC prompt, or an elevated/admin collection session.
+    launch: {method: exe, target: "C:\\Program Files\\Audacity\\Audacity.exe"}
+    window_title_contains: "Audacity"
+    states:
+      - name: default
+        split: test_held_out_app
+        steps: []
+
+  - name: notepad_plus_plus
+    pool: held_out
+    richness: weak
+    # KNOWN LIMITATION (2026-07-13): not installed, same cause as audacity
+    # above -- winget install (Notepad++.Notepad++) needed a UAC prompt
+    # nobody was present to approve, cancelled by Windows after timeout.
+    launch: {method: exe, target: "C:\\Program Files\\Notepad++\\notepad++.exe"}
+    window_title_contains: "Notepad++"
+    states:
+      - name: default
+        split: test_held_out_app
+        steps: []
+      - name: with_text
+        split: test_held_out_app
+        steps:
+          - {kind: type, text: "held-out app smoke text"}
