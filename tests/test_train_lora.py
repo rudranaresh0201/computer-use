@@ -29,6 +29,14 @@ def test_training_args_use_gradient_accumulation_to_fit_a_free_tier_gpu():
     assert args.gradient_checkpointing is True
 
 
+def test_training_args_use_reentrant_checkpointing_for_qwen2vl_compatibility():
+    # non-reentrant (torch's default) checkpointing raised CheckpointError
+    # on Qwen2-VL: forward saved 151 tensors, recomputation only 28. The
+    # reentrant mode doesn't do that strict recomputation check.
+    args = build_training_args(Path("runs/test"))
+    assert args.gradient_checkpointing_kwargs == {"use_reentrant": True}
+
+
 def test_training_args_evaluates_and_saves_every_epoch():
     args = build_training_args(Path("runs/test"))
     assert args.eval_strategy == "epoch"

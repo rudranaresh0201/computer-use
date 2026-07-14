@@ -34,6 +34,15 @@ def build_training_args(output_dir: Path) -> TrainingArguments:
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
+        # PyTorch's default non-reentrant checkpoint mode strictly requires
+        # the backward-pass recomputation to save the exact same number of
+        # intermediate tensors as the original forward pass. Qwen2-VL's
+        # architecture doesn't guarantee that under this model's forward
+        # path (observed: 151 tensors saved on the real forward vs. 28 on
+        # recomputation -- a torch/transformers compatibility gap, not a
+        # bug in this training loop). The older reentrant mode doesn't do
+        # this strict check and is the documented workaround.
+        gradient_checkpointing_kwargs={"use_reentrant": True},
         learning_rate=5e-4,
         num_train_epochs=1,
         eval_strategy="epoch",
