@@ -95,20 +95,42 @@ def _launch(config: AppConfig) -> None:
         raise OrchestrationError(f"unknown launch method: {config.launch.method!r}")
 
 
-def _verify_foreground(title_contains: str) -> bool:
+def _window_matches(window, title_contains: str, window_class_contains: Optional[str]) -> bool:
+    """A window is accepted if it matches the title OR (when given) the
+    window class -- additive, since some apps' titles are unreliable (see
+    window_class_contains's docstring in registry.py)."""
+    try:
+        if title_contains.lower() in (window.window_text() or "").lower():
+            return True
+    except Exception:
+        pass
+    if window_class_contains:
+        try:
+            if window_class_contains.lower() in (window.class_name() or "").lower():
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _verify_foreground(title_contains: str, window_class_contains: Optional[str] = None) -> bool:
     try:
         active = Desktop(backend="uia").window(active_only=True, visible_only=True)
-        return title_contains.lower() in (active.window_text() or "").lower()
+        return _window_matches(active, title_contains, window_class_contains)
     except Exception:
         return False
 
 
-def _find_and_focus_window(title_contains: str, timeout: float = WINDOW_FIND_TIMEOUT):
-    """Poll for a window whose title contains `title_contains`, focus it,
-    then verify it actually became the foreground window before returning —
-    the direct fix for the 2026-07-10 Notepad incident (a script that typed
-    into a target it never confirmed had focus). Raises rather than
-    guessing if nothing is ever confirmed foreground within the timeout."""
+def _find_and_focus_window(
+    title_contains: str,
+    timeout: float = WINDOW_FIND_TIMEOUT,
+    window_class_contains: Optional[str] = None,
+):
+    """Poll for a window matching `title_contains` or `window_class_contains`,
+    focus it, then verify it actually became the foreground window before
+    returning — the direct fix for the 2026-07-10 Notepad incident (a script
+    that typed into a target it never confirmed had focus). Raises rather
+    than guessing if nothing is ever confirmed foreground within the timeout."""
     deadline = time.monotonic() + timeout
     last_seen_titles: list[str] = []
 
@@ -125,18 +147,18 @@ def _find_and_focus_window(title_contains: str, timeout: float = WINDOW_FIND_TIM
             except Exception:
                 continue
             last_seen_titles.append(title)
-            if title_contains.lower() in title.lower():
+            if _window_matches(window, title_contains, window_class_contains):
                 try:
                     window.set_focus()
                 except Exception:
                     continue
-                if _verify_foreground(title_contains):
+                if _verify_foreground(title_contains, window_class_contains):
                     return window
         time.sleep(WINDOW_POLL_INTERVAL)
 
     raise OrchestrationError(
-        f"no window matching {title_contains!r} became foreground within "
-        f"{timeout}s (last seen titles: {last_seen_titles})"
+        f"no window matching title={title_contains!r} class={window_class_contains!r} "
+        f"became foreground within {timeout}s (last seen titles: {last_seen_titles})"
     )
 
 
@@ -248,6 +270,7 @@ def run(
             _find_and_focus_window(
                 app_config.window_title_contains,
                 timeout=app_config.launch_timeout_seconds,
+                window_class_contains=app_config.window_class_contains,
             )
         except Exception as exc:
             logger.error("app=%s failed to launch/focus, skipping app: %s", app_config.name, exc)

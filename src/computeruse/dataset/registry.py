@@ -66,6 +66,11 @@ class AppConfig:
     # GIMP's "GIMP Startup" for ~20s) -- override per-app when the
     # orchestrator's default window-find timeout is too tight.
     launch_timeout_seconds: float = 15.0
+    # for apps whose title is unreliable (Windows Terminal shows the active
+    # tab's shell name -- "Windows PowerShell" -- never "Terminal"), match
+    # on window class instead. A window is accepted if it matches EITHER
+    # the title or the class, so this is additive, not a replacement.
+    window_class_contains: Optional[str] = None
 
 
 def load_registry(path: Path) -> list[AppConfig]:
@@ -96,6 +101,7 @@ def load_registry(path: Path) -> list[AppConfig]:
                 window_title_contains=app_raw["window_title_contains"],
                 states=states,
                 launch_timeout_seconds=app_raw.get("launch_timeout_seconds", 15.0),
+                window_class_contains=app_raw.get("window_class_contains"),
             )
         )
     return apps

@@ -167,15 +167,17 @@ apps:
   - name: windows_terminal
     pool: train
     richness: weak
-    # KNOWN LIMITATION (2026-07-13): wt.exe launches, but the visible
-    # top-level window it produces is titled after the shell running in the
-    # default tab ("Windows PowerShell" on this machine), never "Terminal" --
-    # confirmed via live inspection. Same MSIX-packaged-app activation
-    # quirk as task_manager, not just a title-string mismatch: window_class
-    # is CASCADIA_HOSTING_WINDOW_CLASS reliably, but window_title_contains
-    # is matched by title text only. Not retried further; see docs/journal.md.
+    # FIXED (2026-07-14): wt.exe's visible window is titled after the shell
+    # running in the default tab ("Windows PowerShell" on this machine),
+    # never "Terminal" -- window_title_contains alone never matched. Its
+    # window_class (CASCADIA_HOSTING_WINDOW_CLASS) is reliable regardless of
+    # which shell tab is active, so the orchestrator now also matches on
+    # class (see registry.py's window_class_contains, orchestrator.py's
+    # _window_matches). Unlike task_manager, this was a matching bug, not a
+    # real activation failure.
     launch: {method: exe, target: wt.exe}
     window_title_contains: "Terminal"
+    window_class_contains: "CASCADIA_HOSTING_WINDOW_CLASS"
     states:
       - name: default
         split: train
