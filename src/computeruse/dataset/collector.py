@@ -126,13 +126,26 @@ def filter_elements(
     real_size: tuple[int, int],
     max_per_control_type: int = _DEFAULT_MAX_PER_CONTROL_TYPE,
 ) -> list[UIElement]:
-    """Apply the dataset design doc's filtering rules 1, 3, 4.
+    """Apply the dataset design doc's filtering rules 1, 3, 4, plus an
+    instructable-control-type rule discovered from the v1 training run's
+    spot-check: container/text control types (Window, Text, Pane, ...)
+    have no real phrasing in _INSTRUCTION_TEMPLATES, so they fell back to
+    the same generic "Click {name}" text. A window, its sub-panes, and a
+    text label inside it can all share one UIA name (e.g. "Calculator"),
+    which meant the identical instruction pointed at genuinely different
+    boxes -- the model learned to ignore the image for that instruction
+    instead of grounding it. Restricting samples to control types that have
+    a real template removes the collision at the source.
 
     (Rule 2, foreground-window-only, is already enforced by
     `get_foreground_window_tree` scoping the walk to the active window.)
     """
     named_and_visible = [
-        el for el in elements if el.name.strip() and _on_screen(el.rect, real_size)
+        el
+        for el in elements
+        if el.name.strip()
+        and _on_screen(el.rect, real_size)
+        and el.control_type in _INSTRUCTION_TEMPLATES
     ]
     deduped = _dedup(named_and_visible)
     return _sample_by_control_type(deduped, max_per_control_type)

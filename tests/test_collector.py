@@ -57,6 +57,18 @@ def test_filter_keeps_elements_that_are_only_partially_on_screen():
     assert [e.name for e in result] == ["Edge"]
 
 
+def test_filter_drops_control_types_without_a_real_instruction_template():
+    # a window, a text label, and a button can share the same UIA name --
+    # only the button has a real template, so only it should survive.
+    elements = [
+        UIElement(name="Calculator", control_type="Window", rect=(0, 0, 500, 800)),
+        UIElement(name="Calculator", control_type="Text", rect=(140, 60, 220, 85)),
+        UIElement(name="Calculator", control_type="Button", rect=(10, 10, 30, 30)),
+    ]
+    result = filter_elements(elements, real_size=(1920, 1080))
+    assert [(e.name, e.control_type) for e in result] == [("Calculator", "Button")]
+
+
 # ---------------------------------------------------------------------------
 # deduplication
 # ---------------------------------------------------------------------------
