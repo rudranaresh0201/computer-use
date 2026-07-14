@@ -17,6 +17,7 @@ from __future__ import annotations
 from functools import partial
 from pathlib import Path
 
+import torch
 from peft import get_peft_model
 from transformers import AutoModelForImageTextToText, AutoProcessor, Trainer, TrainingArguments
 
@@ -29,8 +30,10 @@ MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
 def build_training_args(output_dir: Path) -> TrainingArguments:
     return TrainingArguments(
         output_dir=str(output_dir),
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=4,
+        gradient_checkpointing=True,
         learning_rate=5e-4,
         num_train_epochs=1,
         eval_strategy="epoch",
@@ -47,10 +50,15 @@ def build_trainer(dataset_root: Path, output_dir: Path) -> Trainer:
     model and needs a GPU to run in reasonable time; this function exists
     so the Kaggle notebook is `from computeruse.training.train_lora import
     build_trainer; build_trainer(...).train()`, not a copy-pasted script."""
-    model = AutoModelForImageTextToText.from_pretrained(MODEL_ID)
+    model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, torch_dtype=torch.float16)
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = get_peft_model(model, build_lora_config())
     model.print_trainable_parameters()
+    # gradient checkpointing needs at least one input tensor with
+    # requires_grad=True to build a backward graph -- with the base model
+    # frozen (only the tiny LoRA adapters are trainable), nothing upstream
+    # of the input embeddings satisfies that by default.
+    model.enable_input_require_grads()
 
     train_dataset = GroundingDataset(
         resolve_path(dataset_root, "splits/train.jsonl"), dataset_root, processor, processor.tokenizer
