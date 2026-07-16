@@ -32,14 +32,22 @@ class UIElement:
 
 
 def get_foreground_window_tree(
-    max_elements: int = 200,
-    max_depth: int = 6,
+    max_elements: int = 400,
+    max_depth: int = 12,
 ) -> list[UIElement]:
     """Best-effort structured element list for the current foreground window.
 
     Returns [] rather than raising if there's no accessible window or the
     UIA backend fails — callers should treat an empty list as "fall back to
     vision", not as an error.
+
+    max_depth was originally 6, tuned against classic Win32 apps. Packaged/
+    WinUI3 apps (e.g. modern Paint's ribbon) nest their real interactive
+    content substantially deeper -- confirmed by direct measurement, Paint's
+    tool buttons and color swatches sit at depth 7-8, while chrome (Minimize/
+    Save) sits at depth 2-4. The old cutoff silently dropped every ribbon
+    control and collected chrome-only data for that app; see docs/journal.md,
+    2026-07-16.
     """
     try:
         window = Desktop(backend="uia").window(active_only=True, visible_only=True)

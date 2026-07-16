@@ -23,6 +23,13 @@ apps:
   - name: notepad
     pool: train
     richness: rich
+    # Windows 11 Notepad is single-instance with tab persistence: launching
+    # notepad.exe while one is already running attaches to that window and
+    # its real tabs instead of opening a fresh blank document. Confirmed
+    # twice as a real leak (docs/journal.md, 2026-07-13 and 2026-07-16) --
+    # single_instance=true makes the orchestrator refuse to launch into an
+    # already-running instance rather than silently reusing it.
+    single_instance: true
     launch: {method: exe, target: notepad.exe}
     window_title_contains: "Notepad"
     states:
@@ -94,7 +101,13 @@ apps:
   - name: settings
     pool: train
     richness: rich
-    launch: {method: shell, target: "ms-settings:"}
+    # Deliberately not "ms-settings:" (bare Home page): Home renders the
+    # signed-in account name and the currently connected Wi-Fi network name
+    # directly on screen -- both real PII, captured into a screenshot once
+    # already (docs/journal.md, 2026-07-16 incident). personalization is a
+    # neutral rich page (Background/Colors/Themes/Fonts) with no account or
+    # network info rendered anywhere in frame.
+    launch: {method: shell, target: "ms-settings:personalization"}
     window_title_contains: "Settings"
     states:
       - name: default

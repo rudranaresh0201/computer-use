@@ -1,4 +1,70 @@
-# GUI Grounding Dataset (v1, frozen 2026-07-13, cleaned 2026-07-14)
+# GUI Grounding Dataset (v2, frozen 2026-07-16; v1 history below preserved as-is)
+
+## v2 (2026-07-16): full 14/14 app coverage, four pipeline bugs fixed
+
+A second PII incident during a full re-collection attempt (Windows Notepad's
+single-instance tab reuse leaked real content again, and the bare
+`ms-settings:` Home page rendered the signed-in account name + Wi-Fi SSID
+into a captured screenshot) triggered a harder look at the whole pipeline,
+which surfaced three more real bugs, all fixed before re-collecting:
+
+- **Chrome-vs-content sampling bias**: `_sample_by_control_type` took the
+  *first* N elements of each control type. UIA tree-walk order visits window
+  chrome (Minimize/Maximize/Close) before real content on every app, so the
+  cap was systematically keeping chrome and dropping the content it was
+  meant to sample. Now samples randomly within the cap instead.
+- **UIA depth cutoff too shallow for packaged apps**: `max_depth=6` was
+  tuned against classic Win32 apps. Packaged/WinUI3 apps (modern Paint's
+  ribbon) nest real interactive content at depth 7-8 while chrome sits at
+  depth 2-4 -- the old cutoff collected chrome-only data for those apps.
+  Raised to `max_depth=12`, `max_elements` 200->400.
+- **Packaged-app rect-not-ready race**: a window can report a genuinely
+  focused, on-screen state via UIA before its accessibility tree has
+  finished laying out -- confirmed directly (Paint's rect read as
+  `(0,0,0,0)` immediately after `set_focus()`, then the real rect moments
+  later). `orchestrator.py` now polls until the rect is non-degenerate
+  before handing off to the collector.
+
+**Fixes for the PII incident itself**: `registry.py` gained a
+`single_instance` flag (Notepad set `true`) -- the orchestrator now refuses
+to launch into an already-running single-instance app rather than silently
+attaching to its real window/tabs. `apps.yaml`'s settings entry now launches
+`ms-settings:personalization` (a neutral page) instead of the bare home
+page. `collector.py` also gained a generic PII filter (`_pii_terms` /
+`_contains_pii`) that drops any element whose name contains the logged-in
+username or any term from `COMPUTERUSE_DATASET_REDACT_TERMS` -- a defense
+in depth, not a replacement for picking neutral app states.
+
+**Result**: re-ran the full registry twice (once unelevated for 12/14 apps,
+once from an elevated session for `task_manager` + `device_manager`, which
+need admin per the same UIPI finding as before). **All 14/14 apps collected,
+0 integrity issues, 570 labeled examples, 32 screenshots** -- every state
+currently defined in `apps.yaml` across every app. The pre-registered 210
+screenshot volume target (`scripts/inspect_dataset.py`) was sized for a
+denser per-app state list than what's actually defined today; hitting 100%
+of *defined* states is real progress, but is not the same claim as hitting
+the original volume target -- adding more states per app is a lever still
+on the table, not something this run closes.
+
+Splits regenerated via `training/prepare_dataset.py`:
+
+| Split | Examples |
+|---|---|
+| `train` | 252 |
+| `dev` | 146 |
+| `test_same_app` | 45 |
+| `test_held_out_app` | 127 |
+
+`test_held_out_app` now spans all 4 held-out apps (`character_map`,
+`device_manager`, `audacity`, `notepad_plus_plus`) instead of just one --
+H3's generalization claim finally has real cross-app diversity behind it.
+
+The pre-v2 dataset (14 apps, 427 examples, the version H1's first training
+run below did *not* use -- that one used the earlier 8-app/291-example v1)
+is preserved untouched at `_pre_v2_backup_20260716T012300Z/` in case any
+comparison against the pre-fix data is ever needed.
+
+## v1 (frozen 2026-07-13, cleaned 2026-07-14)
 
 Auto-labeled from Windows UI Automation (ADR-0003) — no manual annotation.
 See `docs/research/gui-grounding-dataset-design.md` for the full design

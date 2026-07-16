@@ -16,11 +16,13 @@ touching the OS.
 
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 import os
 import subprocess
 import time
+from ctypes import wintypes
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -39,9 +41,54 @@ WINDOW_FIND_TIMEOUT = 15.0
 WINDOW_POLL_INTERVAL = 0.5
 STEP_SETTLE_SECONDS = 0.15  # let the UI catch up between individual input events
 
+DWMWA_CLOAKED = 14
+
 
 class OrchestrationError(Exception):
     pass
+
+
+def _wait_for_stable_rect(window, timeout: float = 3.0, poll: float = 0.1) -> None:
+    """Packaged/UWP-hosted apps (e.g. Paint, MSPaintApp) report a zero or
+    garbage bounding rect from UIA for a brief window right after
+    set_focus() succeeds -- the window is confirmed foreground before its
+    accessibility tree has finished laying out, so every descendant's rect
+    (and therefore collector.py's on-screen filter, which depends on real
+    rects) is briefly wrong. Confirmed by direct measurement: Paint's window
+    rect read immediately after set_focus() was (0,0,0,0); the same read
+    after waiting was the real (191,107,1727,971) -- see docs/journal.md,
+    2026-07-16. Poll until the rect is non-degenerate instead of guessing a
+    fixed sleep, since different apps' packaged UIA providers settle at
+    different speeds."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            rect = window.element_info.rectangle
+            if rect.width() > 0 and rect.height() > 0:
+                return
+        except Exception:
+            pass
+        time.sleep(poll)
+
+
+def _is_cloaked(hwnd: int) -> bool:
+    """True if DWM is hiding this window from the desktop even though it may
+    still report the classic WS_VISIBLE flag. Windows 11 rewrote Task
+    Manager as a packaged/WinUI3 app that uses DWM cloaking to control
+    on-screen visibility instead of WS_VISIBLE, so pywinauto's
+    visible_only=True filter (which checks the classic flag) discards a
+    window that is genuinely on screen -- see docs/journal.md, 2026-07-15."""
+    try:
+        cloaked = wintypes.DWORD()
+        ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            wintypes.HWND(hwnd),
+            DWMWA_CLOAKED,
+            ctypes.byref(cloaked),
+            ctypes.sizeof(cloaked),
+        )
+        return bool(cloaked.value)
+    except Exception:
+        return False
 
 
 @dataclass
@@ -86,7 +133,29 @@ class ProgressLedger:
         )
 
 
+def _process_already_running(exe_name: str) -> bool:
+    """Best-effort check (via tasklist, no extra dependency) for whether a
+    process with this exact image name is already running."""
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {exe_name}", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return exe_name.lower() in result.stdout.lower()
+    except Exception:
+        return False
+
+
 def _launch(config: AppConfig) -> None:
+    if config.single_instance and _process_already_running(config.launch.target):
+        raise OrchestrationError(
+            f"{config.launch.target} is already running and {config.name} is "
+            f"registered single_instance -- launching now would attach to "
+            f"that existing window (and whatever real content it holds) "
+            f"instead of a fresh one. Close it first, then re-run."
+        )
     if config.launch.method == "exe":
         subprocess.Popen([config.launch.target, *config.launch.args])
     elif config.launch.method == "shell":
@@ -115,7 +184,9 @@ def _window_matches(window, title_contains: str, window_class_contains: Optional
 
 def _verify_foreground(title_contains: str, window_class_contains: Optional[str] = None) -> bool:
     try:
-        active = Desktop(backend="uia").window(active_only=True, visible_only=True)
+        active = Desktop(backend="uia").window(active_only=True, visible_only=False)
+        if _is_cloaked(active.handle):
+            return False
         return _window_matches(active, title_contains, window_class_contains)
     except Exception:
         return False
@@ -136,7 +207,7 @@ def _find_and_focus_window(
 
     while time.monotonic() < deadline:
         try:
-            candidates = Desktop(backend="uia").windows(visible_only=True)
+            candidates = Desktop(backend="uia").windows(visible_only=False)
         except Exception:
             candidates = []
 
@@ -146,6 +217,11 @@ def _find_and_focus_window(
                 title = window.window_text()
             except Exception:
                 continue
+            try:
+                if _is_cloaked(window.handle):
+                    continue
+            except Exception:
+                pass
             last_seen_titles.append(title)
             if _window_matches(window, title_contains, window_class_contains):
                 try:
@@ -153,6 +229,7 @@ def _find_and_focus_window(
                 except Exception:
                     continue
                 if _verify_foreground(title_contains, window_class_contains):
+                    _wait_for_stable_rect(window)
                     return window
         time.sleep(WINDOW_POLL_INTERVAL)
 

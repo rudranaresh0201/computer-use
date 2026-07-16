@@ -15,7 +15,9 @@ once per state.
 
 from __future__ import annotations
 
+import getpass
 import json
+import os
 import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -109,22 +111,57 @@ def _dedup(elements: list[UIElement]) -> list[UIElement]:
 
 
 def _sample_by_control_type(
-    elements: list[UIElement], max_per_type: int
+    elements: list[UIElement], max_per_type: int, rng: Optional[random.Random] = None
 ) -> list[UIElement]:
+    """Keep up to max_per_type elements of each control_type.
+
+    Elements arrive in tree-walk order, and window chrome (Minimize/
+    Maximize/Close, nav buttons) sits near the top of that walk on every
+    app -- taking the first N of a type systematically kept chrome and
+    dropped the actual content (e.g. Calculator's digit buttons never
+    survived the cap; every "rich" app's cap-limited types collapsed to
+    the same handful of generic chrome buttons every other app also has).
+    Sampling randomly instead means the cap no longer silently favors
+    whatever the tree walker happened to visit first.
+    """
+    picker = rng or random
     by_type: dict[str, list[UIElement]] = {}
     for el in elements:
         by_type.setdefault(el.control_type, []).append(el)
 
     sampled: list[UIElement] = []
     for group in by_type.values():
-        sampled.extend(group[:max_per_type])
+        if len(group) > max_per_type:
+            sampled.extend(picker.sample(group, max_per_type))
+        else:
+            sampled.extend(group)
     return sampled
+
+
+def _pii_terms() -> list[str]:
+    """The logged-in username always counts (catches account-name UI text
+    and any file path under that user's home dir). Anything else that can't
+    be derived generically -- a home Wi-Fi SSID, say -- goes in the
+    COMPUTERUSE_DATASET_REDACT_TERMS env var (comma-separated) instead of
+    being hardcoded here, so no personal string ends up committed to
+    source. See docs/journal.md, 2026-07-16 incident: a real account name
+    and Wi-Fi SSID were captured into labeled training data."""
+    terms = [getpass.getuser()]
+    extra = os.environ.get("COMPUTERUSE_DATASET_REDACT_TERMS", "")
+    terms.extend(t.strip() for t in extra.split(",") if t.strip())
+    return [t.lower() for t in terms if t]
+
+
+def _contains_pii(name: str, pii_terms: list[str]) -> bool:
+    low = name.lower()
+    return any(term in low for term in pii_terms)
 
 
 def filter_elements(
     elements: list[UIElement],
     real_size: tuple[int, int],
     max_per_control_type: int = _DEFAULT_MAX_PER_CONTROL_TYPE,
+    rng: Optional[random.Random] = None,
 ) -> list[UIElement]:
     """Apply the dataset design doc's filtering rules 1, 3, 4, plus an
     instructable-control-type rule discovered from the v1 training run's
@@ -140,15 +177,17 @@ def filter_elements(
     (Rule 2, foreground-window-only, is already enforced by
     `get_foreground_window_tree` scoping the walk to the active window.)
     """
+    pii_terms = _pii_terms()
     named_and_visible = [
         el
         for el in elements
         if el.name.strip()
         and _on_screen(el.rect, real_size)
         and el.control_type in _INSTRUCTION_TEMPLATES
+        and not _contains_pii(el.name, pii_terms)
     ]
     deduped = _dedup(named_and_visible)
-    return _sample_by_control_type(deduped, max_per_control_type)
+    return _sample_by_control_type(deduped, max_per_control_type, rng)
 
 
 def generate_instruction(
@@ -185,7 +224,7 @@ def collect_from_current_window(
 
     screenshot = capture(save_path=image_path)
     raw_elements = get_foreground_window_tree()
-    elements = filter_elements(raw_elements, screenshot.real_size, max_per_control_type)
+    elements = filter_elements(raw_elements, screenshot.real_size, max_per_control_type, rng)
 
     samples: list[LabeledSample] = []
     for i, element in enumerate(elements):
