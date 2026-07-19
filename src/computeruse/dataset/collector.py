@@ -43,6 +43,8 @@ _INSTRUCTION_TEMPLATES: dict[str, list[str]] = {
 }
 _FALLBACK_TEMPLATES = ["Click {name}"]
 
+_ORDINALS = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"]
+
 # Filtering rule 3 (dedup): a container and its single child frequently
 # report the same rect within a few px of rounding/border noise.
 _DEDUP_TOLERANCE_PX = 4
@@ -190,15 +192,54 @@ def filter_elements(
     return _sample_by_control_type(deduped, max_per_control_type, rng)
 
 
+def _disambiguated_names(elements: list[UIElement]) -> dict[int, str]:
+    """Map id(element) -> the name to use in its instruction, adding a
+    positional ordinal when multiple elements share the same
+    (control_type, name).
+
+    Two sibling elements can be genuinely distinct, on-screen, and
+    correctly named the same thing -- e.g. two Windows Terminal tabs both
+    named "Windows PowerShell". Without disambiguation both produce the
+    identical instruction text ("Open the Windows PowerShell tab") pointing
+    at two different pixels, which a model can't resolve no matter how it's
+    trained: spot-checking the 2026-07-18 training run showed it predicting
+    the midpoint of both tabs' positions for exactly this pair. This is a
+    different failure than the Window/Pane/Text collision fixed in
+    filter_elements (that one was wrong control types sharing a name;
+    control-type filtering can't fix this one, since TabItem is exactly the
+    type we want to keep). Ordinal assigned by left-to-right, top-to-bottom
+    reading order, which matches how these duplicates are actually laid out
+    in practice (tabs, list rows).
+    """
+    groups: dict[tuple[str, str], list[UIElement]] = {}
+    for el in elements:
+        groups.setdefault((el.control_type, el.name.strip()), []).append(el)
+
+    names: dict[int, str] = {}
+    for (_control_type, name), group in groups.items():
+        if len(group) == 1:
+            names[id(group[0])] = name
+            continue
+        ordered = sorted(group, key=lambda e: (e.rect[0], e.rect[1]))
+        for idx, el in enumerate(ordered):
+            ordinal = _ORDINALS[idx] if idx < len(_ORDINALS) else f"{idx + 1}th"
+            names[id(el)] = f"{ordinal} {name}"
+    return names
+
+
 def generate_instruction(
-    element: UIElement, rng: Optional[random.Random] = None
+    element: UIElement, rng: Optional[random.Random] = None, name: Optional[str] = None
 ) -> str:
     """Auto-generate a referring instruction from UIA metadata alone —
-    the free label source (ADR-0003), no manual annotation."""
+    the free label source (ADR-0003), no manual annotation.
+
+    `name` overrides element.name.strip() when the caller has already
+    resolved a disambiguated name (see _disambiguated_names) -- callers
+    that don't care about duplicate-name collisions can omit it."""
     picker = rng or random
     templates = _INSTRUCTION_TEMPLATES.get(element.control_type, _FALLBACK_TEMPLATES)
     template = picker.choice(templates)
-    return template.format(name=element.name.strip())
+    return template.format(name=name if name is not None else element.name.strip())
 
 
 def collect_from_current_window(
@@ -225,10 +266,11 @@ def collect_from_current_window(
     screenshot = capture(save_path=image_path)
     raw_elements = get_foreground_window_tree()
     elements = filter_elements(raw_elements, screenshot.real_size, max_per_control_type, rng)
+    display_names = _disambiguated_names(elements)
 
     samples: list[LabeledSample] = []
     for i, element in enumerate(elements):
-        instruction = generate_instruction(element, rng)
+        instruction = generate_instruction(element, rng, name=display_names[id(element)])
         samples.append(
             LabeledSample(
                 id=f"{screenshot_id}_e{i}",

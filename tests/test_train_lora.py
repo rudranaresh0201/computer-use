@@ -12,9 +12,15 @@ from computeruse.training.train_lora import build_training_args
 
 
 def test_training_args_match_documented_starting_hyperparameters():
+    # revised 2026-07-19 after the v2 rerun showed real run-to-run
+    # instability at lr=5e-4/1 epoch -- see build_training_args' own
+    # comment for the SeeClick-literature-informed reasoning behind these
+    # specific values.
     args = build_training_args(Path("runs/test"))
-    assert args.learning_rate == 5e-4
-    assert args.num_train_epochs == 1
+    assert args.learning_rate == 1e-4
+    assert args.num_train_epochs == 3
+    assert args.seed == 42
+    assert args.data_seed == 42
 
 
 def test_training_args_use_gradient_accumulation_to_fit_a_free_tier_gpu():

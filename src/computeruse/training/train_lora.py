@@ -27,6 +27,30 @@ from .lora_config import build_lora_config
 MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
 
 
+def _disable_peft_torchao_dispatch() -> None:
+    """Kaggle's base image ships an old torchao (0.10.0 as of 2026-07-16)
+    that peft's LoRA dispatcher rejects outright -- `is_torchao_available()`
+    raises ImportError for a too-old version instead of just returning
+    False, even though this project never uses torchao-quantized models.
+    Uninstalling torchao from the shell (`pip uninstall torchao`) turned
+    out not to reliably fix this on Kaggle (a second site-packages copy
+    survives the uninstall), so this patches the check at the source
+    instead: force peft's torchao dispatcher to report "unavailable" so it
+    falls through to the plain LoRA dispatch path we actually want. Safe to
+    no-op if peft's internals change shape (older/newer peft without this
+    module) -- we only need this on the exact peft version Kaggle installs.
+    """
+    try:
+        from peft.tuners.lora import torchao as _peft_torchao
+
+        _peft_torchao.is_torchao_available = lambda: False
+    except (ImportError, AttributeError):
+        pass
+
+
+_disable_peft_torchao_dispatch()
+
+
 def build_training_args(output_dir: Path) -> TrainingArguments:
     return TrainingArguments(
         output_dir=str(output_dir),
@@ -43,8 +67,26 @@ def build_training_args(output_dir: Path) -> TrainingArguments:
         # bug in this training loop). The older reentrant mode doesn't do
         # this strict check and is the documented workaround.
         gradient_checkpointing_kwargs={"use_reentrant": True},
-        learning_rate=5e-4,
-        num_train_epochs=1,
+        # 5e-4 over a single epoch (63 steps on the 542-row v2 dataset) is
+        # too little gradient signal for a stable result -- the 2026-07-19
+        # rerun landed noticeably worse than the run before it purely from
+        # random init/batch-order variance, confirmed by re-verifying the
+        # dataset was identical both times. Checked against the literature
+        # before picking a new value: SeeClick (arxiv 2401.10935), the
+        # closest real published GUI-grounding LoRA fine-tune, uses 3e-5 --
+        # roughly 15x lower than our original 5e-4. Landed on 1e-4 as a
+        # middle point: meaningfully lower than 5e-4 (which was likely
+        # too aggressive and part of why results were noisy run-to-run),
+        # but higher than SeeClick's 3e-5 since our dataset is far smaller
+        # (542 rows vs. their ~1M-scale corpus) and needs more signal per
+        # step to move at all. More epochs gives the model repeated,
+        # gentler passes over the same data instead of a few large, noisy
+        # ones. seed pins the run so a repeat is reproducible, not another
+        # random draw.
+        learning_rate=1e-4,
+        num_train_epochs=3,
+        seed=42,
+        data_seed=42,
         eval_strategy="epoch",
         save_strategy="epoch",
         logging_steps=10,

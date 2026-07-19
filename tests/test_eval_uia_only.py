@@ -1,0 +1,95 @@
+"""
+Tests for the UIA-only ablation arm (src/computeruse/eval/uia_only.py).
+
+Fixtures build screenshot_rows the same shape collect_from_current_window
+emits into labels.jsonl -- just the fields uia_only.py actually reads
+(element name/control_type/bbox_real), not a full LabeledSample.
+"""
+
+from computeruse.eval.uia_only import UiaOnlyPrediction, is_hit, predict
+
+
+def _row(name: str, control_type: str, bbox: tuple[int, int, int, int]) -> dict:
+    return {"element": {"name": name, "control_type": control_type, "bbox_real": list(bbox)}}
+
+
+def test_predict_matches_the_only_candidate():
+    rows = [_row("Save", "Button", (10, 10, 30, 30))]
+    result = predict("Click Save", rows)
+    assert result.center == (20, 20)
+    assert result.matched_name == "Save"
+    assert not result.ambiguous
+
+
+def test_predict_picks_the_right_candidate_among_several():
+    rows = [
+        _row("Save", "Button", (10, 10, 30, 30)),
+        _row("Cancel", "Button", (40, 10, 60, 30)),
+        _row("Enabled", "CheckBox", (0, 50, 20, 70)),
+    ]
+    result = predict("Press the Cancel button", rows)
+    assert result.center == (50, 20)
+    assert result.matched_name == "Cancel"
+
+
+def test_predict_resolves_duplicate_names_via_ordinal_disambiguation():
+    # the real Windows Terminal case: two tabs, same name, different positions
+    rows = [
+        _row("Windows PowerShell", "TabItem", (100, 140, 220, 160)),
+        _row("Windows PowerShell", "TabItem", (300, 140, 420, 160)),
+    ]
+    first = predict("Open the first Windows PowerShell tab", rows)
+    second = predict("Open the second Windows PowerShell tab", rows)
+
+    assert first.center == (160, 150)
+    assert second.center == (360, 150)
+    assert not first.ambiguous
+    assert not second.ambiguous
+
+
+def test_predict_prefers_longest_match_for_prefix_collisions():
+    # "Save" is a literal substring of "Save As" -- the longer, more
+    # specific name should win rather than the shorter partial match
+    rows = [
+        _row("Save", "Button", (10, 10, 30, 30)),
+        _row("Save As", "Button", (40, 10, 90, 30)),
+    ]
+    result = predict("Click Save As", rows)
+    assert result.matched_name == "Save As"
+    assert result.center == (65, 20)
+
+
+def test_predict_reports_ambiguous_when_two_control_types_share_a_template():
+    # Button and MenuItem both include "Click {name}" as a template -- a
+    # Button and a MenuItem with the same name produce byte-identical
+    # instructions, a genuine unresolvable collision the matcher should
+    # refuse to guess on rather than silently pick one.
+    rows = [
+        _row("Settings", "Button", (0, 0, 10, 10)),
+        _row("Settings", "MenuItem", (20, 0, 30, 10)),
+    ]
+    result = predict("Click Settings", rows)
+    assert result.center is None
+    assert result.ambiguous
+
+
+def test_predict_returns_no_match_when_nothing_fits():
+    rows = [_row("Save", "Button", (10, 10, 30, 30))]
+    result = predict("Click something else entirely", rows)
+    assert result.center is None
+    assert not result.ambiguous
+
+
+def test_is_hit_true_when_point_inside_bbox():
+    prediction = UiaOnlyPrediction(center=(20, 20), matched_name="Save", ambiguous=False)
+    assert is_hit(prediction, ground_truth_bbox=(10, 10, 30, 30))
+
+
+def test_is_hit_false_when_point_outside_bbox():
+    prediction = UiaOnlyPrediction(center=(100, 100), matched_name="Save", ambiguous=False)
+    assert not is_hit(prediction, ground_truth_bbox=(10, 10, 30, 30))
+
+
+def test_is_hit_false_for_a_miss():
+    prediction = UiaOnlyPrediction(center=None, matched_name=None, ambiguous=False)
+    assert not is_hit(prediction, ground_truth_bbox=(10, 10, 30, 30))

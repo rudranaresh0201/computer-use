@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from computeruse.dataset.collector import (
     LabeledSample,
+    _disambiguated_names,
     collect_from_current_window,
     filter_elements,
     generate_instruction,
@@ -141,6 +142,61 @@ def test_generate_instruction_is_deterministic_for_a_seeded_rng():
     first = generate_instruction(element, rng=random.Random(42))
     second = generate_instruction(element, rng=random.Random(42))
     assert first == second
+
+
+def test_generate_instruction_uses_the_name_override_when_given():
+    element = UIElement(name="Windows PowerShell", control_type="TabItem", rect=(0, 0, 10, 10))
+    instruction = generate_instruction(element, rng=random.Random(0), name="first Windows PowerShell")
+    assert "first Windows PowerShell" in instruction
+
+
+# ---------------------------------------------------------------------------
+# duplicate-name disambiguation
+# ---------------------------------------------------------------------------
+
+
+def test_disambiguated_names_leaves_unique_names_untouched():
+    elements = [
+        UIElement(name="Save", control_type="Button", rect=(0, 0, 10, 10)),
+        UIElement(name="Cancel", control_type="Button", rect=(20, 0, 30, 10)),
+    ]
+    names = _disambiguated_names(elements)
+    assert names[id(elements[0])] == "Save"
+    assert names[id(elements[1])] == "Cancel"
+
+
+def test_disambiguated_names_adds_ordinal_for_same_name_and_control_type():
+    # two Windows Terminal tabs, same name, different positions -- the real
+    # case that produced identical instructions for different pixels
+    left_tab = UIElement(name="Windows PowerShell", control_type="TabItem", rect=(100, 140, 220, 160))
+    right_tab = UIElement(name="Windows PowerShell", control_type="TabItem", rect=(300, 140, 420, 160))
+
+    names = _disambiguated_names([left_tab, right_tab])
+
+    assert names[id(left_tab)] == "first Windows PowerShell"
+    assert names[id(right_tab)] == "second Windows PowerShell"
+
+
+def test_disambiguated_names_orders_by_position_not_input_order():
+    right_tab = UIElement(name="Tab", control_type="TabItem", rect=(300, 140, 420, 160))
+    left_tab = UIElement(name="Tab", control_type="TabItem", rect=(100, 140, 220, 160))
+
+    # passed in right-to-left order; leftmost should still be "first"
+    names = _disambiguated_names([right_tab, left_tab])
+
+    assert names[id(left_tab)] == "first Tab"
+    assert names[id(right_tab)] == "second Tab"
+
+
+def test_disambiguated_names_does_not_collide_across_control_types():
+    # same name, different control_type -- not the same ambiguity, no ordinal
+    button = UIElement(name="Settings", control_type="Button", rect=(0, 0, 10, 10))
+    tab = UIElement(name="Settings", control_type="TabItem", rect=(50, 0, 60, 10))
+
+    names = _disambiguated_names([button, tab])
+
+    assert names[id(button)] == "Settings"
+    assert names[id(tab)] == "Settings"
 
 
 # ---------------------------------------------------------------------------
