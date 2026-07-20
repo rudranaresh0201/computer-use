@@ -120,3 +120,60 @@ The DWM-cloak change (`_is_cloaked()`, `visible_only=False` in `orchestrator.py`
 **Honest note on readiness**: 32/210 screenshots against `inspect_dataset.py`'s pre-registered volume target — that target assumed a denser per-app state list than what's actually defined in `apps.yaml` today. Hitting 100% of currently-defined states is real, but isn't the same claim as hitting the original volume target; more states per app is a lever still on the table.
 
 **Next session**: run this v2 dataset through the Kaggle notebook (second real training run, still an engineering validation not a final result), then start the 4-arm ablation (UIA-only / zero-shot VLM / fine-tuned grounder / hybrid) that H1-H3 actually depend on.
+
+---
+
+## 2026-07-19 — Pre-rerun audit: a real fp16 bug, and a biased spot-check
+
+**Context**: the v2 training run kept producing bad predictions on the notebook's 5-example dev spot-check, and the 07-19 rerun landed noticeably worse than the run before it on identical data. That was initially attributed to `lr=5e-4` being too aggressive (lowered to 1e-4, epochs 1 -> 3, seed pinned). This session audited the pipeline before spending another GPU run.
+
+**Bug 1 (the real one): training ran in raw fp16 with no loss scaling.** `train_lora.build_trainer` loaded the model with `torch_dtype=torch.float16`, but `build_training_args` never set `fp16=True`. Two consequences, neither of which errors:
+- The trainable LoRA params were themselves fp16, so Adam's state and updates were fp16. Update magnitudes here are ~1e-4 against weights of ~1e-2; fp16's smallest normal value is ~6e-5, so a large share of updates rounded to zero.
+- HF `Trainer` only attaches a `GradScaler` when `fp16=True`. Without it the backward pass ran unscaled and small gradients underflowed silently.
+
+The failure mode is nasty because it looks like success: the loss is dominated by the frozen base model, so it stays in a sane range while the adapter barely moves. And *which* updates survive depends on batch order — which is exactly the run-to-run instability that got blamed on the learning rate. Note that lowering lr to 1e-4 makes underflow strictly worse, not better.
+
+**Fix**: `cast_trainable_params_to_fp32` (keeps the frozen base in fp16 so it still fits a 15GB T4, promotes only the trainable adapter), called after `get_peft_model` and before the `Trainer` is constructed so the optimizer is built over fp32 params; plus `fp16=True` in `TrainingArguments` so autocast + `GradScaler` are actually active. This is the standard PEFT mixed-precision recipe; we had neither half of it. bf16 was considered and rejected — the T4 has no bf16 tensor cores. Guarded by tests, including one asserting the cast doesn't drop `requires_grad` (which would silently freeze the whole adapter — a worse version of the same bug).
+
+**Also fixed**: `load_best_model_at_end` on `eval_loss` (a 3-epoch run over 252 examples was keeping epoch 3 even when epoch 2 was better — i.e. reporting the overfit checkpoint), and `warmup_ratio=0.03` (a LoRA adapter starts at exactly zero, so step 1 takes full lr against an unmoved model; the whole run is only ~189 steps).
+
+**Bug 2: the spot-check was measuring the worst possible five examples.** `dev.jsonl` is grouped by app and the cell took `[:5]`, so every run was judged on the *same* five — three of which are Calculator's Minimize/Restore/Close titlebar buttons, adjacent targets 36 normalized units apart, visually near-identical, and exactly the window chrome the 07-16 sampling-bias fix was about. "Predictions look bad" was partly a measurement artifact.
+
+**Fix**: the notebook now runs the **full 146-example dev split** through `eval/vlm_grounder.evaluate_arm` and reports click accuracy (the H1-H3 metric), parse rate, and median center distance, plus a *seeded random* 8-example qualitative sample instead of the first five. Added `center_distance_normalized` and `summarize_diagnostics` for this. The reasoning for distance: the median target box in this dataset is 37x44 units, 0.16% of screen area, so binary hit-rate is a nearly-all-zeros signal early in training — a model that has learned "Close lives in the top right" and one pointing at the taskbar both score 0.0. Distance separates them, so it's the right thing to steer dev decisions by. It stays a diagnostic; accuracy remains the reported metric.
+
+**Notebook hygiene**: cell 3's robust `rglob("labels.jsonl")` dataset finder had been authored as a **markdown** cell, so it never ran — the cell that actually executed hardcoded `/kaggle/input/gui-grounding-v2`. Merged into one real code cell that also asserts exactly one `labels.jsonl` is mounted and that the split sizes are 252/146. This is not hypothetical: a screenshot of the live Kaggle session shows two datasets attached (`final_gui_grounding` and `rudragui`), which means a run could have silently trained against the stale v1 upload with nothing in the logs to say so.
+
+**Dataset scale, stated plainly** (audited, not fixed — no code change can fix it): train is 252 rows but only **14 unique screenshots**; dev is 9. Median target is 0.16% of screen area, and a trivial always-click-center baseline scores 0.4%. This is SeeClick's task attempted on 14 images. The fixes above remove real bugs and should make runs comparable to each other, but the honest ceiling here is set by screenshot count, and more states per app in `apps.yaml` remains the highest-leverage lever left.
+
+**Next session**: rerun with the fixed precision path, read the dev accuracy/distance numbers (not the old spot-check), and only then decide whether lr needs to go back up — the original reason for lowering it no longer applies.
+
+---
+
+## 2026-07-19 (later) — The actual reason the numbers were bad: 36% of the dataset was the wrong application
+
+**How it was found**: rendering every label's bounding box onto its screenshot and *looking at the images*. That had never been done — every previous check was numeric (`inspect_dataset.py` reported "0 integrity issues" on this exact data, because it verifies schema and file existence, not whether the picture shows the app the label claims).
+
+**The bug**: `collector.collect_from_current_window` called `screenshot.capture()` (whole desktop) and `uia.get_foreground_window_tree()` (whatever is active *right now*), with nothing tying the two together or to the app being collected. The orchestrator focused each app **once**, before its state loop, then never re-checked. So when focus was lost mid-run — a human typing in another window, GIMP/Audacity exiting seconds after launch, a drive step opening something — the collector walked the **code editor's** UIA tree and wrote its buttons to `labels.jsonl` under the target app's name, with no error.
+
+**Damage**: 196 of 542 rows (36%), across 5 screenshots:
+- all four `file_explorer` states (157 rows, 29% of the entire dataset) — boxes on VS Code's File/Edit/Selection menu and Explorer sidebar
+- `audacity_0000` (39 rows) — VS Code again, with our own Claude Code session visible in frame. This was the *only* Audacity screenshot, so **100% of that held-out app was wrong**, and H3's generalization claim had been resting on it.
+
+Three training runs were spent tuning hyperparameters against this.
+
+**Also found in the same audit**:
+- 6 screenshots contain nothing but Minimize/Restore/Close (the app's content never rendered). One of them, `calculator_0002`, supplied three of the five examples the notebook's spot-check judged every run on — so "the predictions look bad" was partly measuring three near-identical titlebar buttons 36 normalized units apart.
+- 2 boxes out of frame entirely (`task_manager_0003_e25` extends to y=1102 on a 1080px screen).
+- The whole dataset is **32 screenshots**. 542 "examples" is 32 images with many elements labeled on each; median target is 0.16% of screen area, and a trivial always-click-center baseline scores 0.4%.
+
+**Fixes**:
+1. `uia.get_foreground_window_info()` returns the window's title/class/rect alongside its elements, so the caller can *verify* what it got. `collector` now checks it against the expected app and raises `WindowMismatchError` rather than labeling. The orchestrator re-verifies before every state, not once per app.
+2. `screenshot.capture(region=...)` + `collector`'s `crop_to_window` (opt-in, default off) crops to the target window and rebases boxes into that frame. Default off deliberately: mixing cropped and full-desktop images in one dataset is a second bug, so it's only for a full re-collection.
+3. `scripts/validate_dataset.py` — a hard gate that exits non-zero on wrong-window / out-of-bounds / ambiguous / leaked / PII rows. It reproduces every finding above from `labels.jsonl` alone. Run before every upload.
+4. `scripts/quarantine_bad_screenshots.py` — removes named screenshots + their rows and resets the matching ledger entries, with a backup, so only the broken apps re-collect.
+5. `registry.GeometryVariant` + `apps.yaml` expansion: 2-3 states per app became 6-10, each captured at 2-3 window sizes. **32 screenshots -> 212**, which finally meets `inspect_dataset.py`'s pre-registered 210 target. Variants of one state share that state's split (two sizes of one screen are near-duplicates; splitting them would be leakage). Geometry is applied *before* the drive steps, so a resize doesn't strand an already-open dialog.
+6. `run_dataset_collection.py` gained `--apps`, a hands-off countdown, and a raised rate limit — the 60/min default *raises* on breach, and at 212 screenshots it would have started silently skipping states inside the first app.
+
+**Lesson, and it's the same one as 2026-07-10 and 2026-07-16 in a new costume**: "the code ran without error" is not "the code did the right thing". `inspect_dataset.py` passed, 103 tests passed, the loss looked sane, and a third of the data was of the wrong application. The check that found it was looking at a picture. Any pipeline that produces images should have a render-and-eyeball step wired in from day one, not reached for after three wasted GPU runs.
+
+**Next session**: quarantine the 5 bad screenshots, re-collect (unelevated pass, then an elevated one for task_manager/device_manager), `validate_dataset.py` must pass, rebuild the upload zip, then train with the fp16 fix from earlier today.

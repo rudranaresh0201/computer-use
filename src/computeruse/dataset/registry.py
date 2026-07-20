@@ -40,11 +40,40 @@ class DriveStep:
 
 
 @dataclass
+class GeometryVariant:
+    """One window size/position to capture a state at.
+
+    The 2026-07-19 audit found the dataset had only 32 unique screenshots
+    behind 542 rows -- screenshots, not rows, are the scarce resource, and
+    every app was always captured at exactly one geometry. That teaches
+    "the Close button is at (982, 24)" rather than "the Close button is the
+    X at the top-right of *this window*". Re-capturing the same state at a
+    few sizes multiplies screenshot count without authoring new states, and
+    the ground-truth box moves with the window, so it directly penalizes
+    memorizing absolute position.
+
+    `name` is appended to the state name for the progress ledger, so
+    variants resume independently. width/height are in real screen px;
+    None means "leave the window as-is" (the app's natural size).
+    """
+
+    name: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+    left: int = 60
+    top: int = 60
+
+
+@dataclass
 class AppState:
     name: str
     split: str  # "train" | "dev" | "test_same_app" | "test_held_out_app"
     steps: list[DriveStep] = field(default_factory=list)
     settle_seconds: float = 0.5
+    # Every variant of one state shares that state's split, deliberately:
+    # two sizes of the same screen are near-duplicates, so splitting them
+    # across train/dev would be leakage dressed up as more data.
+    geometry_variants: list[GeometryVariant] = field(default_factory=list)
 
 
 @dataclass
@@ -95,6 +124,12 @@ def load_registry(path: Path) -> list[AppConfig]:
                 split=state_raw["split"],
                 steps=[DriveStep(**step) for step in state_raw.get("steps", [])],
                 settle_seconds=state_raw.get("settle_seconds", 0.5),
+                geometry_variants=[
+                    GeometryVariant(**variant)
+                    for variant in state_raw.get(
+                        "geometry_variants", app_raw.get("geometry_variants", [])
+                    )
+                ],
             )
             for state_raw in app_raw["states"]
         ]

@@ -6,9 +6,12 @@ Kaggle notebook, not here, same split as train_lora.py's own test coverage.
 """
 
 from computeruse.eval.vlm_grounder import (
+    ArmResult,
+    center_distance_normalized,
     is_hit_normalized,
     normalize_bbox,
     parse_point,
+    summarize_diagnostics,
 )
 from computeruse.training.prepare_dataset import normalized_center
 
@@ -75,3 +78,55 @@ def test_is_hit_normalized_false_on_the_boundary_is_actually_true():
 
 def test_is_hit_normalized_false_for_an_unparseable_prediction():
     assert not is_hit_normalized(None, (100, 200, 300, 400))
+
+
+def test_center_distance_is_zero_at_the_box_center():
+    assert center_distance_normalized((200, 300), (100, 200, 300, 400)) == 0.0
+
+
+def test_center_distance_measures_from_the_center_not_the_edge():
+    # (200, 300) is the center; (200, 400) is on the bottom edge, 100 away
+    assert center_distance_normalized((200, 400), (100, 200, 300, 400)) == 100.0
+
+
+def test_center_distance_is_none_for_an_unparseable_prediction():
+    # distinct from "very far away" -- a format failure is a different
+    # failure mode than a grounding failure, and averaging them together
+    # would hide which one is happening
+    assert center_distance_normalized(None, (100, 200, 300, 400)) is None
+
+
+def _result(distance, hit=False):
+    return ArmResult(
+        example_id="x",
+        app="calculator",
+        split="dev",
+        predicted_text="",
+        predicted_point=None if distance is None else (0, 0),
+        ground_truth_bbox_norm=(0, 0, 10, 10),
+        hit=hit,
+        center_distance=distance,
+    )
+
+
+def test_summarize_diagnostics_reports_parse_rate_over_all_results():
+    results = [_result(10.0), _result(None), _result(30.0), _result(50.0)]
+    assert summarize_diagnostics(results)["parse_rate"] == 0.75
+
+
+def test_summarize_diagnostics_excludes_unparseable_from_the_distance_stats():
+    # the None must not be counted as a zero-distance (perfect) prediction
+    results = [_result(10.0), _result(None), _result(30.0)]
+    diagnostics = summarize_diagnostics(results)
+    assert diagnostics["median_center_distance"] == 20.0
+    assert diagnostics["mean_center_distance"] == 20.0
+
+
+def test_summarize_diagnostics_handles_an_all_unparseable_arm():
+    # a plausible real zero-shot outcome -- must not divide by zero
+    diagnostics = summarize_diagnostics([_result(None), _result(None)])
+    assert diagnostics["parse_rate"] == 0.0
+
+
+def test_summarize_diagnostics_handles_no_results():
+    assert summarize_diagnostics([])["parse_rate"] == 0.0

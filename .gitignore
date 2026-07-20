@@ -22,4 +22,8 @@ data/gui_grounding/splits/
 data/gui_grounding_v1.zip
 data/gui_grounding/gui_grounding_upload.zip
 data/gui_grounding/*.bak
+data/gui_grounding/*.bak_*
 data/gui_grounding/_pre_v2_backup_*/
+# quarantine_bad_screenshots.py's safety copies -- labels/ledger/images of
+# screenshots removed from the dataset. Local recovery only, never source.
+data/gui_grounding/_quarantine_backup_*/

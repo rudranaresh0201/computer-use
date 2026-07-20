@@ -308,3 +308,91 @@ def test_run_apps_filter_restricts_to_named_apps(mock_load, tmp_path):
             apps_filter=["notepad"],
         )
         assert mock_launch.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# geometry variants (added 2026-07-19)
+# ---------------------------------------------------------------------------
+
+
+def test_registry_parses_geometry_variants_inherited_from_the_app():
+    from computeruse.dataset.registry import load_registry
+
+    apps = load_registry(Path("data/gui_grounding/apps.yaml"))
+    notepad = next(a for a in apps if a.name == "notepad")
+    # declared once at app level, inherited by every state
+    assert len(notepad.states[0].geometry_variants) == 3
+    assert {v.name for v in notepad.states[0].geometry_variants} == {
+        "compact",
+        "medium",
+        "large",
+    }
+
+
+def test_all_variants_of_a_state_share_that_states_split():
+    # two window sizes of the same screen are near-duplicates -- putting one
+    # in train and one in dev would be leakage dressed up as more data.
+    # The schema enforces this structurally (split lives on the state, not
+    # the variant); this test pins that so a future refactor can't move it.
+    from computeruse.dataset.registry import AppState, GeometryVariant
+
+    state = AppState(
+        name="s",
+        split="train",
+        geometry_variants=[GeometryVariant(name="a"), GeometryVariant(name="b")],
+    )
+    assert not hasattr(state.geometry_variants[0], "split")
+    assert state.split == "train"
+
+
+def test_registry_real_file_produces_the_expected_screenshot_count():
+    # guards against an accidental edit gutting the state list again: the
+    # 2026-07-19 expansion took this from 32 to 212 screenshots, and 32 was
+    # the single biggest cap on model performance.
+    from computeruse.dataset.registry import load_registry
+
+    apps = load_registry(Path("data/gui_grounding/apps.yaml"))
+    shots = sum(
+        max(1, len(s.geometry_variants)) for a in apps for s in a.states
+    )
+    assert shots >= 200, f"registry only yields {shots} screenshots"
+
+
+def test_every_state_that_can_inherit_a_dialog_starts_by_dismissing_it():
+    # states run sequentially against whatever the previous one left open;
+    # without a leading escape a state silently collects the PREVIOUS
+    # state's dialog and labels it as this one. See apps.yaml's authoring
+    # rule. Checked for states whose own steps open something modal.
+    from computeruse.dataset.registry import load_registry
+
+    apps = load_registry(Path("data/gui_grounding/apps.yaml"))
+    offenders = []
+    for app in apps:
+        for i, state in enumerate(app.states):
+            if i == 0 or not state.steps:
+                continue
+            opens_dialog = any(
+                s.kind == "key" and s.text and ("ctrl+" in s.text or "alt+" in s.text)
+                for s in state.steps
+            )
+            first_is_escape = state.steps[0].kind == "key" and state.steps[0].text == "escape"
+            if opens_dialog and not first_is_escape:
+                offenders.append(f"{app.name}:{state.name}")
+    # a small allow-list: states that deliberately build on the previous one
+    allowed = {
+        "calculator:scientific_mode",
+        "calculator:programmer_mode",
+        "calculator:date_calculation_mode",
+        "calculator:navigation_open",
+        "task_manager:performance_tab",
+        "task_manager:app_history_tab",
+        "task_manager:startup_apps_tab",
+        "task_manager:details_tab",
+        "task_manager:services_tab",
+        "windows_terminal:two_tabs",
+        "windows_terminal:three_tabs",
+        "windows_terminal:split_pane",
+        "windows_terminal:command_palette",
+        "control_panel:appearance",
+    }
+    assert not (set(offenders) - allowed), f"states missing an escape reset: {sorted(set(offenders) - allowed)}"

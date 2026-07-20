@@ -2,10 +2,7 @@
 #
 # Schema consumed by src/computeruse/dataset/registry.py. App list, pools,
 # and richness labels match the table in
-# docs/research/gui-grounding-dataset-design.md. Per-app state lists are a
-# first cut, not a final design — the design doc explicitly leaves "exact
-# per-app state list" as a collection-tool implementation detail to be
-# refined once the tool exists (which it now does).
+# docs/research/gui-grounding-dataset-design.md.
 #
 # Drive step kinds (see registry.DriveStep):
 #   key           -- text: a pyautogui-style key combo, e.g. "ctrl+f"
@@ -18,6 +15,45 @@
 # doc) and their `launch.target` paths below are the common default install
 # locations — if not installed on a given machine, the orchestrator logs the
 # launch failure for that app and moves on to the next one.
+#
+# ---------------------------------------------------------------------------
+# EXPANDED 2026-07-19. Two changes, both driven by the dataset audit
+# (docs/journal.md):
+#
+# 1. MORE STATES. The previous list averaged 2-3 states per app, which
+#    yielded 32 unique screenshots behind 542 rows. Screenshots — not rows —
+#    are the scarce resource: 252 training rows over 14 images is 18
+#    instructions against the same picture. Every app below now defines
+#    6-10 states.
+#
+# 2. GEOMETRY VARIANTS. Each state is captured at several window sizes
+#    (`geometry_variants`, declared once per app and inherited by its
+#    states). The ground-truth box moves with the window, so this directly
+#    penalizes memorizing absolute pixel positions — the failure mode the
+#    old single-geometry dataset actively encouraged. All variants of a
+#    state share that state's split, because two sizes of one screen are
+#    near-duplicates and splitting them across train/dev would be leakage.
+#
+# STATE AUTHORING RULE: states run sequentially against whatever the
+# previous state left on screen — the orchestrator does not reset the app
+# between them. So every state that could inherit an open dialog starts
+# with an `escape`. Do not remove those; without them a state silently
+# collects the *previous* state's dialog and mislabels it.
+# ---------------------------------------------------------------------------
+
+# Reused by every app below via YAML anchors. Three sizes: a compact window,
+# a mid-size one, and a large one. `left`/`top` differ too, so position is
+# not correlated with size.
+_geometry: &standard_geometry
+  - {name: compact, width: 900, height: 620, left: 80, top: 60}
+  - {name: medium, width: 1280, height: 800, left: 300, top: 120}
+  - {name: large, width: 1600, height: 950, left: 40, top: 30}
+
+# Apps that refuse to resize below a large minimum, or whose layout is
+# meaningless when small, get only two larger variants.
+_geometry_large: &large_geometry
+  - {name: medium, width: 1280, height: 850, left: 220, top: 90}
+  - {name: large, width: 1650, height: 980, left: 40, top: 30}
 
 apps:
   - name: notepad
@@ -32,6 +68,7 @@ apps:
     single_instance: true
     launch: {method: exe, target: notepad.exe}
     window_title_contains: "Notepad"
+    geometry_variants: *standard_geometry
     states:
       - name: empty_document
         split: train
@@ -40,14 +77,37 @@ apps:
         split: train
         steps:
           - {kind: type, text: "The quick brown fox jumps over the lazy dog."}
+      - name: multiline_text
+        split: train
+        steps:
+          - {kind: type, text: "alpha\nbeta\ngamma\ndelta"}
+      - name: file_menu_open
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+f"}
+      - name: edit_menu_open
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+e"}
       - name: find_dialog
         split: dev
         settle_seconds: 0.6
         steps:
+          - {kind: key, text: "escape"}
           - {kind: key, text: "ctrl+f"}
+      - name: replace_dialog
+        split: dev
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+h"}
       - name: save_as_dialog
         split: test_same_app
-        settle_seconds: 0.6
+        settle_seconds: 0.8
         steps:
           - {kind: key, text: "escape"}
           - {kind: key, text: "ctrl+shift+s"}
@@ -57,6 +117,7 @@ apps:
     richness: rich
     launch: {method: exe, target: calc.exe}
     window_title_contains: "Calculator"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: train
@@ -65,22 +126,52 @@ apps:
         split: train
         steps:
           - {kind: type, text: "12345"}
+      - name: after_arithmetic
+        split: train
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: type, text: "84*7="}
       - name: scientific_mode
-        split: dev
+        split: train
         settle_seconds: 0.6
         steps:
           - {kind: key, text: "alt+2"}
+      - name: programmer_mode
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "alt+3"}
+      - name: date_calculation_mode
+        split: dev
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "alt+4"}
+      - name: navigation_open
+        split: dev
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "alt+1"}
+          - {kind: click_element, name: "Open Navigation", control_type: Button}
       - name: history_pane
         split: test_same_app
         settle_seconds: 0.6
         steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+2"}
           - {kind: key, text: "ctrl+h"}
 
   - name: file_explorer
     pool: train
     richness: rich
+    # RE-COLLECTED 2026-07-19. Every previous file_explorer screenshot was
+    # actually the code editor: focus was stolen mid-run and the collector
+    # had no verification step, so all 4 states (157 rows, 29% of the whole
+    # dataset) were labeled from the wrong window. The collector now
+    # verifies the foreground window before labeling and raises on a
+    # mismatch -- see collector.WindowMismatchError.
     launch: {method: exe, target: explorer.exe}
     window_title_contains: "File Explorer"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: train
@@ -88,14 +179,43 @@ apps:
       - name: address_bar_focused
         split: train
         steps:
+          - {kind: key, text: "escape"}
           - {kind: key, text: "ctrl+l"}
+      - name: this_pc
+        split: train
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+l"}
+          - {kind: type, text: "shell:MyComputerFolder\n"}
+      - name: details_view
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+shift+6"}
+      - name: large_icons_view
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+shift+2"}
       - name: search_box_focused
         split: dev
         steps:
+          - {kind: key, text: "escape"}
           - {kind: key, text: "ctrl+e"}
+      - name: new_folder_prompt
+        split: dev
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+shift+n"}
+          - {kind: key, text: "escape"}
       - name: details_pane
         split: test_same_app
         steps:
+          - {kind: key, text: "escape"}
           - {kind: key, text: "alt+shift+p"}
 
   - name: settings
@@ -107,12 +227,36 @@ apps:
     # already (docs/journal.md, 2026-07-16 incident). personalization is a
     # neutral rich page (Background/Colors/Themes/Fonts) with no account or
     # network info rendered anywhere in frame.
+    #
+    # Every state below is likewise a neutral page. Do NOT add Accounts,
+    # Network & internet, or Home.
     launch: {method: shell, target: "ms-settings:personalization"}
     window_title_contains: "Settings"
+    geometry_variants: *large_geometry
     states:
-      - name: default
+      - name: personalization
         split: train
         steps: []
+      - name: accessibility
+        split: train
+        settle_seconds: 1.0
+        steps:
+          - {kind: click_element, name: "Accessibility", control_type: ListItem}
+      - name: apps
+        split: train
+        settle_seconds: 1.0
+        steps:
+          - {kind: click_element, name: "Apps", control_type: ListItem}
+      - name: gaming
+        split: train
+        settle_seconds: 1.0
+        steps:
+          - {kind: click_element, name: "Gaming", control_type: ListItem}
+      - name: time_and_language
+        split: dev
+        settle_seconds: 1.0
+        steps:
+          - {kind: click_element, name: "Time & language", control_type: ListItem}
       - name: search_focused
         split: dev
         steps:
@@ -124,37 +268,74 @@ apps:
   - name: task_manager
     pool: train
     richness: rich
-    # KNOWN LIMITATION (2026-07-13): taskmgr.exe launches (confirmed via
-    # subprocess poll) but never produces a foreground window matching
-    # "Task Manager" in this automation environment, unlike every plain
-    # Win32 app in this registry (Notepad, Calculator, Control Panel).
-    # Windows 11's Task Manager is COM/broker-activated rather than a
-    # direct window creation, and that activation path appears to fail
-    # silently under this session. Not retried further; see docs/journal.md.
+    # REQUIRES AN ELEVATED COLLECTION SESSION (2026-07-15). Not a COM/broker
+    # activation failure as first theorised, and not DWM cloaking: taskmgr
+    # carries autoElevate=true and runs at High integrity with no UAC
+    # prompt, while the collector runs at Medium. Windows enforces UIPI as a
+    # hard boundary, so the window is genuinely unreachable from a
+    # non-elevated session. Launch a terminal via Start -> right-click ->
+    # "Terminal (Admin)", verify IsInRole(Administrator) is True, then run.
     launch: {method: exe, target: taskmgr.exe}
     window_title_contains: "Task Manager"
+    geometry_variants: *large_geometry
     states:
-      - name: default
+      - name: processes_tab
         split: train
         steps: []
       - name: performance_tab
         split: train
+        settle_seconds: 0.8
         steps:
           - {kind: key, text: "ctrl+2"}
+      - name: app_history_tab
+        split: train
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "ctrl+3"}
+      - name: startup_apps_tab
+        split: train
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "ctrl+4"}
       - name: details_tab
         split: dev
+        settle_seconds: 0.8
         steps:
           - {kind: key, text: "ctrl+5"}
+      - name: services_tab
+        split: dev
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "ctrl+6"}
 
   - name: control_panel
     pool: train
     richness: rich
     launch: {method: exe, target: control.exe}
     window_title_contains: "Control Panel"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: train
         steps: []
+      - name: large_icons_view
+        split: train
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: click_element, name: "System and Security", control_type: Hyperlink}
+          - {kind: key, text: "alt+left"}
+      - name: ease_of_access
+        split: train
+        settle_seconds: 0.8
+        steps:
+          - {kind: click_element, name: "Ease of Access", control_type: Hyperlink}
+      - name: appearance
+        split: dev
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "alt+left"}
+          - {kind: click_element, name: "Appearance and Personalization", control_type: Hyperlink}
       - name: search_focused
         split: dev
         steps:
@@ -168,14 +349,39 @@ apps:
     richness: weak
     launch: {method: exe, target: mspaint.exe}
     window_title_contains: "Paint"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: train
         steps: []
-      - name: tool_selected
-        split: dev
+      - name: brush_tool
+        split: train
         steps:
+          - {kind: key, text: "escape"}
           - {kind: key, text: "b"}
+      - name: text_tool
+        split: train
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "t"}
+      - name: fill_tool
+        split: train
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "f"}
+      - name: shapes_available
+        split: dev
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+w"}
+          - {kind: key, text: "escape"}
+      - name: resize_dialog
+        split: test_same_app
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+w"}
 
   - name: windows_terminal
     pool: train
@@ -191,28 +397,78 @@ apps:
     launch: {method: exe, target: wt.exe}
     window_title_contains: "Terminal"
     window_class_contains: "CASCADIA_HOSTING_WINDOW_CLASS"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: train
         steps: []
-      - name: new_tab
-        split: dev
+      - name: two_tabs
+        split: train
+        settle_seconds: 0.8
         steps:
           - {kind: key, text: "ctrl+shift+t"}
+      - name: three_tabs
+        split: train
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "ctrl+shift+t"}
+      - name: split_pane
+        split: train
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "alt+shift+plus"}
+      - name: command_palette
+        split: dev
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "ctrl+shift+p"}
+      - name: dropdown_menu
+        split: dev
+        settle_seconds: 0.8
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+comma"}
 
   - name: vlc
     pool: train
     richness: weak
     launch: {method: exe, target: "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe"}
     window_title_contains: "VLC"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: train
         steps: []
+      - name: media_menu_open
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+m"}
+      - name: playback_menu_open
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+l"}
+      - name: tools_menu_open
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+t"}
       - name: open_dialog
         split: dev
+        settle_seconds: 0.8
         steps:
+          - {kind: key, text: "escape"}
           - {kind: key, text: "ctrl+o"}
+      - name: preferences_dialog
+        split: dev
+        settle_seconds: 1.0
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+p"}
 
   - name: gimp
     pool: train
@@ -227,28 +483,34 @@ apps:
     # 2026-07-13). launch_timeout_seconds raised past the splash duration.
     window_title_contains: "Manipulation Program"
     launch_timeout_seconds: 30.0
-    # KNOWN LIMITATION (2026-07-13): even with the title/timeout fix above,
-    # the process exits cleanly (exit code 0) 5-15s after launch in this
-    # environment -- confirmed over 2 attempts, once after briefly showing
-    # its real window, once without showing it at all. Likely a GTK
-    # rendering/display-access issue specific to this automation session,
-    # not a registry config bug. Not retried further; see docs/journal.md.
+    # KNOWN LIMITATION (2026-07-13): the process exits cleanly (exit code 0)
+    # 5-15s after launch in this environment -- likely a GTK
+    # rendering/display-access issue specific to this automation session.
+    # The collector is normally fast enough to capture before it dies
+    # (2026-07-15), but that is a race, not a fix: keep the state list short
+    # and expect variants to fail. Geometry variants are deliberately NOT
+    # set here -- each resize costs time this app does not have.
     states:
       - name: default
         split: train
         steps: []
+      - name: file_menu_open
+        split: train
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+f"}
 
   - name: device_manager
     pool: held_out
     richness: rich
-    # KNOWN LIMITATION (2026-07-13): launch fails outright with
-    # WinError 740 ("The requested operation requires elevation") --
-    # devmgmt.msc needs an admin token and this collection account is a
-    # standard (non-admin) user. Not something an automated script should
-    # bypass (would mean silently working around UAC); needs either running
-    # the collector from an elevated session, or a different account.
+    # REQUIRES AN ELEVATED COLLECTION SESSION. devmgmt.msc needs an admin
+    # token; from a standard user the launch fails outright with WinError
+    # 740. Same bucket as task_manager -- not something a script should
+    # bypass, since that would mean silently working around UAC.
     launch: {method: exe, target: mmc.exe, args: ["devmgmt.msc"]}
     window_title_contains: "Device Manager"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: test_held_out_app
@@ -257,40 +519,81 @@ apps:
         split: test_held_out_app
         steps:
           - {kind: key, text: "right"}
+      - name: second_category
+        split: test_held_out_app
+        steps:
+          - {kind: key, text: "down"}
+          - {kind: key, text: "right"}
+      - name: view_menu_open
+        split: test_held_out_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+v"}
 
   - name: character_map
     pool: held_out
     richness: rich
     launch: {method: exe, target: charmap.exe}
     window_title_contains: "Character Map"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: test_held_out_app
         steps: []
+      - name: advanced_view
+        split: test_held_out_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: click_element, name: "Advanced view", control_type: CheckBox}
+      - name: character_selected
+        split: test_held_out_app
+        steps:
+          - {kind: key, text: "right"}
+          - {kind: key, text: "right"}
 
   - name: audacity
     pool: held_out
     richness: weak
-    # KNOWN LIMITATION (2026-07-13): not installed. winget install
-    # (Audacity.Audacity) triggered a UAC elevation prompt with nobody
-    # present to approve it, so the install was cancelled by Windows after
-    # timing out. Needs either an interactive session to click through the
-    # UAC prompt, or an elevated/admin collection session.
+    # RE-COLLECTED 2026-07-19: the previous audacity_0000 was not Audacity at
+    # all -- it was the code editor, captured because focus was stolen and
+    # nothing verified the window. It was the ONLY audacity screenshot, so
+    # 100% of this held-out app was wrong, and H3's generalization claim was
+    # resting on it. Installed via winget; a cold first run needs a longer
+    # timeout (2026-07-15).
     launch: {method: exe, target: "C:\\Program Files\\Audacity\\Audacity.exe"}
     window_title_contains: "Audacity"
+    launch_timeout_seconds: 30.0
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: test_held_out_app
         steps: []
+      - name: file_menu_open
+        split: test_held_out_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+f"}
+      - name: edit_menu_open
+        split: test_held_out_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+e"}
+      - name: tracks_menu_open
+        split: test_held_out_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+t"}
 
   - name: notepad_plus_plus
     pool: held_out
     richness: weak
-    # KNOWN LIMITATION (2026-07-13): not installed, same cause as audacity
-    # above -- winget install (Notepad++.Notepad++) needed a UAC prompt
-    # nobody was present to approve, cancelled by Windows after timeout.
     launch: {method: exe, target: "C:\\Program Files\\Notepad++\\notepad++.exe"}
     window_title_contains: "Notepad++"
+    geometry_variants: *standard_geometry
     states:
       - name: default
         split: test_held_out_app
@@ -299,3 +602,15 @@ apps:
         split: test_held_out_app
         steps:
           - {kind: type, text: "held-out app smoke text"}
+      - name: find_dialog
+        split: test_held_out_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "ctrl+f"}
+      - name: view_menu_open
+        split: test_held_out_app
+        settle_seconds: 0.6
+        steps:
+          - {kind: key, text: "escape"}
+          - {kind: key, text: "alt+v"}

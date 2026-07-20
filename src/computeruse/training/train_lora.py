@@ -51,9 +51,37 @@ def _disable_peft_torchao_dispatch() -> None:
 _disable_peft_torchao_dispatch()
 
 
+def cast_trainable_params_to_fp32(model):
+    """Keep the frozen base model in fp16 (it never receives an optimizer
+    update, and fp16 is what makes a 2B model fit a 15GB T4), but hold the
+    *trainable* LoRA params in fp32.
+
+    Why this is not optional: Adam's update magnitudes here are ~1e-4
+    relative to weights of ~1e-2, and fp16's smallest normal value is
+    ~6e-5. Storing the adapter in fp16 rounds a large share of those
+    updates to zero, so the model appears to train (loss looks sane --
+    the loss is dominated by the frozen base) while the adapter barely
+    moves. Which updates survive depends on batch order, which is what
+    made 2026-07-19's rerun look like random lr instability. This plus
+    fp16=True in TrainingArguments (autocast + GradScaler, see below) is
+    the standard PEFT mixed-precision recipe; we had neither.
+    """
+    for param in model.parameters():
+        if param.requires_grad:
+            param.data = param.data.to(torch.float32)
+    return model
+
+
 def build_training_args(output_dir: Path) -> TrainingArguments:
     return TrainingArguments(
         output_dir=str(output_dir),
+        # Real mixed precision, not "the weights happen to be fp16".
+        # fp16=True is what makes Trainer wrap the step in torch.autocast
+        # AND attach a GradScaler; without it, the backward pass runs
+        # unscaled in fp16 and small gradients underflow to zero with no
+        # warning. T4 has no usable bf16 (no bf16 tensor cores), so fp16 +
+        # GradScaler is the correct choice on this hardware, not bf16.
+        fp16=True,
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=4,
@@ -67,6 +95,14 @@ def build_training_args(output_dir: Path) -> TrainingArguments:
         # bug in this training loop). The older reentrant mode doesn't do
         # this strict check and is the documented workaround.
         gradient_checkpointing_kwargs={"use_reentrant": True},
+        # NOTE (2026-07-19, second pass): the run-to-run instability this
+        # comment blames on lr was at least partly the fp16 underflow bug
+        # fixed above -- no GradScaler was attached, so an unpredictable
+        # subset of adapter updates was being dropped every run. 1e-4 is
+        # kept as a reasonable value on its own merits, but if the fixed
+        # run now underfits, raising lr back toward 3e-4 is the first
+        # thing to try, since the original reason for lowering it is gone.
+        #
         # 5e-4 over a single epoch (63 steps on the 542-row v2 dataset) is
         # too little gradient signal for a stable result -- the 2026-07-19
         # rerun landed noticeably worse than the run before it purely from
@@ -85,10 +121,25 @@ def build_training_args(output_dir: Path) -> TrainingArguments:
         # random draw.
         learning_rate=1e-4,
         num_train_epochs=3,
+        # A LoRA adapter starts at exactly zero (B is zero-initialized), so
+        # the first few steps take the full lr against a model that hasn't
+        # moved at all yet. A short warmup costs ~2 steps and removes that
+        # initial shock, which matters more here than usual because the
+        # whole run is only ~189 steps.
+        warmup_ratio=0.03,
         seed=42,
         data_seed=42,
         eval_strategy="epoch",
         save_strategy="epoch",
+        # Without this, a 3-epoch run keeps epoch 3 even if epoch 2 had the
+        # better dev loss -- i.e. it silently reports the overfit checkpoint
+        # on a 252-example dataset, where overfitting by epoch 3 is likely.
+        # Selecting on dev (never on either test split) is exactly what the
+        # hypothesis doc permits.
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        save_total_limit=2,
         logging_steps=10,
         report_to=[],
         remove_unused_columns=False,
@@ -104,6 +155,10 @@ def build_trainer(dataset_root: Path, output_dir: Path) -> Trainer:
     model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, torch_dtype=torch.float16)
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = get_peft_model(model, build_lora_config())
+    # Must happen after get_peft_model (the adapters don't exist before it)
+    # and before the Trainer is built, so the optimizer is constructed over
+    # fp32 params -- see cast_trainable_params_to_fp32's docstring.
+    cast_trainable_params_to_fp32(model)
     model.print_trainable_parameters()
     # gradient checkpointing needs at least one input tensor with
     # requires_grad=True to build a backward graph -- with the base model

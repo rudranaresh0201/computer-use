@@ -8,7 +8,9 @@ machine runs.
 
 from pathlib import Path
 
-from computeruse.training.train_lora import build_training_args
+import torch
+
+from computeruse.training.train_lora import build_training_args, cast_trainable_params_to_fp32
 
 
 def test_training_args_match_documented_starting_hyperparameters():
@@ -47,6 +49,52 @@ def test_training_args_evaluates_and_saves_every_epoch():
     args = build_training_args(Path("runs/test"))
     assert args.eval_strategy == "epoch"
     assert args.save_strategy == "epoch"
+
+
+def test_training_args_enable_real_mixed_precision():
+    # The bug this guards (found 2026-07-19): the model was loaded with
+    # torch_dtype=float16 but fp16 was never set here, so Trainer attached
+    # no GradScaler and the backward pass ran unscaled in fp16. Small
+    # gradients underflowed to zero silently -- training "worked" (loss
+    # looked sane, dominated by the frozen base) while the adapter barely
+    # moved, and which updates survived depended on batch order. Do not
+    # remove fp16=True without also changing how the model is loaded.
+    args = build_training_args(Path("runs/test"))
+    assert args.fp16 is True
+
+
+def test_training_args_select_the_best_dev_checkpoint_not_the_last():
+    # 3 epochs over 252 examples can overfit by the last epoch; without
+    # this, that overfit checkpoint is what gets reported. Selection is on
+    # dev only, never on either test split.
+    args = build_training_args(Path("runs/test"))
+    assert args.load_best_model_at_end is True
+    assert args.metric_for_best_model == "eval_loss"
+    assert args.greater_is_better is False
+
+
+def test_cast_trainable_params_promotes_only_the_trainable_ones():
+    # mirrors the real shape: a frozen fp16 "base" plus a trainable fp16
+    # "adapter". Only the adapter should come back as fp32 -- promoting the
+    # frozen base too would blow up memory on a 15GB T4 for no benefit.
+    frozen = torch.nn.Linear(4, 4).half()
+    frozen.requires_grad_(False)
+    adapter = torch.nn.Linear(4, 4).half()
+    model = torch.nn.Sequential(frozen, adapter)
+
+    cast_trainable_params_to_fp32(model)
+
+    assert all(p.dtype == torch.float16 for p in frozen.parameters())
+    assert all(p.dtype == torch.float32 for p in adapter.parameters())
+
+
+def test_cast_trainable_params_keeps_them_trainable():
+    # a careless implementation that rebuilds the tensor instead of
+    # assigning .data can drop requires_grad, which would silently freeze
+    # the entire adapter -- a worse version of the bug being fixed.
+    layer = torch.nn.Linear(4, 4).half()
+    cast_trainable_params_to_fp32(layer)
+    assert all(p.requires_grad for p in layer.parameters())
 
 
 def test_training_args_keeps_unused_columns_for_custom_collator():

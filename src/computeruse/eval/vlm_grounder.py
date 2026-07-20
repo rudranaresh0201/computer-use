@@ -94,6 +94,32 @@ def is_hit_normalized(
     return left <= x <= right and top <= y <= bottom
 
 
+def center_distance_normalized(
+    point: Optional[tuple[int, int]], bbox_norm: tuple[int, int, int, int]
+) -> Optional[float]:
+    """Euclidean distance from the predicted point to the ground-truth box
+    *center*, in the same [0,1000) space, or None if nothing was parseable.
+
+    Why this exists alongside is_hit_normalized: the median target in this
+    dataset is 37x44 units, i.e. 0.16% of screen area. Binary hit-rate over
+    targets that small is a nearly-all-zeros signal early in training -- a
+    model that has genuinely learned "the Close button lives in the top
+    right" and one that points at the taskbar both score 0.0, so hit-rate
+    alone cannot tell you whether a run improved. Distance is continuous and
+    does distinguish them, which makes it the right thing to steer dev
+    decisions by. It is a *diagnostic*, not the reported metric: H1-H3 are
+    stated in terms of click accuracy (is_hit_normalized), and that stays
+    the headline number in the ablation.
+    """
+    if point is None:
+        return None
+    left, top, right, bottom = bbox_norm
+    cx = (left + right) / 2
+    cy = (top + bottom) / 2
+    x, y = point
+    return ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+
+
 @dataclass
 class ArmResult:
     """Per-example outcome, kept around (not just a running total) so the
@@ -108,6 +134,9 @@ class ArmResult:
     predicted_point: Optional[tuple[int, int]]
     ground_truth_bbox_norm: tuple[int, int, int, int]
     hit: bool
+    # None when the generation had no parseable point at all -- kept
+    # distinct from "far away", which is a different failure.
+    center_distance: Optional[float] = None
 
 
 def predict(model, processor, tokenizer, image, instruction_example: TrainingExample) -> str:
@@ -166,6 +195,7 @@ def evaluate_arm(
                 predicted_point=point,
                 ground_truth_bbox_norm=bbox_norm,
                 hit=is_hit_normalized(point, bbox_norm),
+                center_distance=center_distance_normalized(point, bbox_norm),
             )
         )
     return results
@@ -184,3 +214,36 @@ def summarize(results: list[ArmResult]) -> dict[str, float]:
     for app, hits in by_app.items():
         summary[app] = sum(hits) / len(hits)
     return summary
+
+
+def summarize_diagnostics(results: list[ArmResult]) -> dict[str, float]:
+    """The steering numbers, kept in a separate function from `summarize`
+    so the reported-accuracy contract (app -> hit rate) stays uncontaminated
+    by diagnostics that are not part of H1-H3.
+
+    - `parse_rate`: fraction of generations containing a readable (x,y) at
+      all. If this is low, nothing downstream means anything yet -- the
+      model has an output-format problem, not a grounding problem, and
+      that distinction is invisible in hit-rate alone (both score 0).
+    - `median_center_distance` / `mean_center_distance`: over parseable
+      predictions only, in [0,1000) units. For scale: a prediction 500
+      units away is half a screen off; the median ground-truth box is ~40
+      units across, so anything under ~20 is essentially a hit.
+    """
+    if not results:
+        return {"parse_rate": 0.0, "median_center_distance": 0.0, "mean_center_distance": 0.0}
+
+    distances = sorted(r.center_distance for r in results if r.center_distance is not None)
+    parse_rate = len(distances) / len(results)
+    if not distances:
+        return {"parse_rate": 0.0, "median_center_distance": 0.0, "mean_center_distance": 0.0}
+
+    mid = len(distances) // 2
+    median = (
+        distances[mid] if len(distances) % 2 else (distances[mid - 1] + distances[mid]) / 2
+    )
+    return {
+        "parse_rate": parse_rate,
+        "median_center_distance": median,
+        "mean_center_distance": sum(distances) / len(distances),
+    }

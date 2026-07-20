@@ -1,6 +1,6 @@
 """
 Dataset collector tests. The two calls that touch the real OS/UIA
-(perception.screenshot.capture, perception.uia.get_foreground_window_tree)
+(perception.screenshot.capture, perception.uia.get_foreground_window_info)
 are mocked wherever a test exercises collect_from_current_window, matching
 the patching convention in tests/test_nodes.py (patch the name as imported
 into the module under test). Everything else here — filtering, dedup,
@@ -13,16 +13,19 @@ import random
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from computeruse.dataset.collector import (
     LabeledSample,
     _disambiguated_names,
+    WindowMismatchError,
     collect_from_current_window,
     filter_elements,
     generate_instruction,
     write_samples,
 )
 from computeruse.perception.screenshot import Screenshot
-from computeruse.perception.uia import UIElement
+from computeruse.perception.uia import UIElement, WindowTree
 
 
 # ---------------------------------------------------------------------------
@@ -214,14 +217,25 @@ def _fake_screenshot() -> Screenshot:
     )
 
 
-@patch("computeruse.dataset.collector.get_foreground_window_tree")
+def _always_visible(rect):
+    """Stub for uia.is_visible_at_center -- the real one hit-tests the live
+    desktop, which no unit test has. Occlusion policy itself is tested
+    directly against drop_occluded below."""
+    return True
+
+
+def _fake_window(elements, rect=(0, 0, 1920, 1080), title="Untitled - Notepad", class_name="Notepad"):
+    return WindowTree(title=title, class_name=class_name, rect=rect, elements=elements)
+
+
+@patch("computeruse.dataset.collector.get_foreground_window_info")
 @patch("computeruse.dataset.collector.capture")
-def test_collect_produces_one_sample_per_surviving_element(mock_capture, mock_tree, tmp_path):
+def test_collect_produces_one_sample_per_surviving_element(mock_capture, mock_window, tmp_path):
     mock_capture.return_value = _fake_screenshot()
-    mock_tree.return_value = [
+    mock_window.return_value = _fake_window([
         UIElement(name="Save", control_type="Button", rect=(10, 10, 30, 30), automation_id="SaveBtn"),
         UIElement(name="", control_type="Button", rect=(40, 40, 60, 60)),  # filtered out
-    ]
+    ])
 
     samples = collect_from_current_window(
         app="notepad",
@@ -230,6 +244,7 @@ def test_collect_produces_one_sample_per_surviving_element(mock_capture, mock_tr
         session_id="sess1",
         screenshot_seq=7,
         dataset_root=tmp_path,
+        visibility_check=_always_visible,
         rng=random.Random(0),
     )
 
@@ -245,14 +260,14 @@ def test_collect_produces_one_sample_per_surviving_element(mock_capture, mock_tr
     assert sample.source == "uia_auto_label"
 
 
-@patch("computeruse.dataset.collector.get_foreground_window_tree")
+@patch("computeruse.dataset.collector.get_foreground_window_info")
 @patch("computeruse.dataset.collector.capture")
-def test_collect_sample_element_and_coordinate_fields_match_schema(mock_capture, mock_tree, tmp_path):
+def test_collect_sample_element_and_coordinate_fields_match_schema(mock_capture, mock_window, tmp_path):
     shot = _fake_screenshot()
     mock_capture.return_value = shot
-    mock_tree.return_value = [
+    mock_window.return_value = _fake_window([
         UIElement(name="Save", control_type="Button", rect=(10, 10, 30, 30), automation_id="SaveBtn"),
-    ]
+    ])
 
     samples = collect_from_current_window(
         app="notepad",
@@ -261,6 +276,7 @@ def test_collect_sample_element_and_coordinate_fields_match_schema(mock_capture,
         session_id="sess1",
         screenshot_seq=1,
         dataset_root=tmp_path,
+        visibility_check=_always_visible,
         rng=random.Random(0),
     )
 
@@ -278,13 +294,13 @@ def test_collect_sample_element_and_coordinate_fields_match_schema(mock_capture,
     assert sample.instruction  # non-empty, template-generated
 
 
-@patch("computeruse.dataset.collector.get_foreground_window_tree")
+@patch("computeruse.dataset.collector.get_foreground_window_info")
 @patch("computeruse.dataset.collector.capture")
-def test_collect_screenshot_path_is_relative_to_dataset_root(mock_capture, mock_tree, tmp_path):
+def test_collect_screenshot_path_is_relative_to_dataset_root(mock_capture, mock_window, tmp_path):
     mock_capture.return_value = _fake_screenshot()
-    mock_tree.return_value = [
+    mock_window.return_value = _fake_window([
         UIElement(name="Save", control_type="Button", rect=(10, 10, 30, 30)),
-    ]
+    ])
 
     samples = collect_from_current_window(
         app="notepad",
@@ -293,17 +309,18 @@ def test_collect_screenshot_path_is_relative_to_dataset_root(mock_capture, mock_
         session_id="sess1",
         screenshot_seq=3,
         dataset_root=tmp_path,
+        visibility_check=_always_visible,
         rng=random.Random(0),
     )
 
     assert samples[0].screenshot_path == "images/notepad/notepad_0003.png"
 
 
-@patch("computeruse.dataset.collector.get_foreground_window_tree")
+@patch("computeruse.dataset.collector.get_foreground_window_info")
 @patch("computeruse.dataset.collector.capture")
-def test_collect_passes_the_image_save_path_to_capture(mock_capture, mock_tree, tmp_path):
+def test_collect_passes_the_image_save_path_to_capture(mock_capture, mock_window, tmp_path):
     mock_capture.return_value = _fake_screenshot()
-    mock_tree.return_value = []
+    mock_window.return_value = _fake_window([])
 
     collect_from_current_window(
         app="notepad",
@@ -312,6 +329,7 @@ def test_collect_passes_the_image_save_path_to_capture(mock_capture, mock_tree, 
         session_id="sess1",
         screenshot_seq=1,
         dataset_root=tmp_path,
+        visibility_check=_always_visible,
         rng=random.Random(0),
     )
 
@@ -366,3 +384,194 @@ def test_write_samples_creates_parent_directories(tmp_path):
     labels_path = tmp_path / "nested" / "dir" / "labels.jsonl"
     write_samples([_sample("a")], labels_path)
     assert labels_path.exists()
+
+
+# --- window verification and cropping (added 2026-07-19 after the audit) ---
+
+
+@patch("computeruse.dataset.collector.get_foreground_window_info")
+@patch("computeruse.dataset.collector.capture")
+def test_collect_raises_when_the_foreground_window_is_a_different_app(
+    mock_capture, mock_window, tmp_path
+):
+    # THE regression this guards: focus was stolen mid-run and the collector
+    # labeled the code editor's elements as the target app -- 196 of 542 rows
+    # in the v2 dataset, including 100% of one held-out app. Must raise.
+    mock_capture.return_value = _fake_screenshot()
+    mock_window.return_value = _fake_window(
+        [UIElement(name="Explorer", control_type="Button", rect=(10, 10, 30, 30))],
+        title="labels.jsonl - project computer use - Visual Studio Code",
+        class_name="Chrome_WidgetWin_1",
+    )
+
+    with pytest.raises(WindowMismatchError):
+        collect_from_current_window(
+            app="file_explorer",
+            app_richness="rich",
+            split="train",
+            session_id="sess1",
+            screenshot_seq=0,
+            dataset_root=tmp_path,
+        visibility_check=_always_visible,
+            expect_title_contains="File Explorer",
+        )
+
+
+@patch("computeruse.dataset.collector.get_foreground_window_info")
+@patch("computeruse.dataset.collector.capture")
+def test_collect_does_not_even_screenshot_on_mismatch(mock_capture, mock_window, tmp_path):
+    # a wrong-window PNG left on disk is how 8 unreviewed screenshots ended
+    # up inside the Kaggle upload zip
+    mock_capture.return_value = _fake_screenshot()
+    mock_window.return_value = _fake_window([], title="Visual Studio Code", class_name="X")
+
+    with pytest.raises(WindowMismatchError):
+        collect_from_current_window(
+            app="audacity",
+            app_richness="weak",
+            split="test_held_out_app",
+            session_id="sess1",
+            screenshot_seq=0,
+            dataset_root=tmp_path,
+        visibility_check=_always_visible,
+            expect_title_contains="Audacity",
+        )
+    mock_capture.assert_not_called()
+
+
+@patch("computeruse.dataset.collector.get_foreground_window_info")
+@patch("computeruse.dataset.collector.capture")
+def test_collect_accepts_a_class_match_when_the_title_is_unreliable(
+    mock_capture, mock_window, tmp_path
+):
+    # Windows Terminal reports the active shell's name, never "Terminal"
+    mock_capture.return_value = _fake_screenshot()
+    mock_window.return_value = _fake_window(
+        [UIElement(name="Save", control_type="Button", rect=(10, 10, 30, 30))],
+        title="Windows PowerShell",
+        class_name="CASCADIA_HOSTING_WINDOW_CLASS",
+    )
+
+    samples = collect_from_current_window(
+        app="windows_terminal",
+        app_richness="weak",
+        split="train",
+        session_id="sess1",
+        screenshot_seq=0,
+        dataset_root=tmp_path,
+        visibility_check=_always_visible,
+        rng=random.Random(0),
+        expect_title_contains="Terminal",
+        expect_class_contains="CASCADIA_HOSTING_WINDOW_CLASS",
+    )
+    assert len(samples) == 1
+
+
+@patch("computeruse.dataset.collector.get_foreground_window_info")
+@patch("computeruse.dataset.collector.capture")
+def test_collect_crops_to_the_window_and_rebases_boxes(mock_capture, mock_window, tmp_path):
+    # window at (200,100); a button at screen (250,150) must be stored at
+    # (50,50) -- relative to the cropped image, which is what the model sees.
+    window_rect = (200, 100, 1000, 700)
+    mock_capture.return_value = Screenshot(
+        real_size=(800, 600), scaled_size=(800, 600), scale_x=1.0, scale_y=1.0,
+        png_bytes=b"fake", origin=(200, 100),
+    )
+    mock_window.return_value = _fake_window(
+        [UIElement(name="Save", control_type="Button", rect=(250, 150, 290, 180))],
+        rect=window_rect,
+    )
+
+    samples = collect_from_current_window(
+        app="notepad", app_richness="rich", split="train", session_id="sess1",
+        screenshot_seq=0, dataset_root=tmp_path, rng=random.Random(0),
+        visibility_check=_always_visible,
+        expect_title_contains="Notepad", crop_to_window=True,
+    )
+
+    assert samples[0].element["bbox_real"] == [50, 50, 90, 80]
+    _, kwargs = mock_capture.call_args
+    assert kwargs["region"] == window_rect
+
+
+@patch("computeruse.dataset.collector.get_foreground_window_info")
+@patch("computeruse.dataset.collector.capture")
+def test_collect_drops_elements_outside_the_target_window(mock_capture, mock_window, tmp_path):
+    # a dropdown hosted in its own top-level window would land outside the
+    # cropped image entirely -- an unlearnable target
+    mock_capture.return_value = Screenshot(
+        real_size=(800, 600), scaled_size=(800, 600), scale_x=1.0, scale_y=1.0,
+        png_bytes=b"fake", origin=(200, 100),
+    )
+    mock_window.return_value = _fake_window(
+        [
+            UIElement(name="Inside", control_type="Button", rect=(250, 150, 290, 180)),
+            UIElement(name="Outside", control_type="Button", rect=(1500, 900, 1560, 930)),
+        ],
+        rect=(200, 100, 1000, 700),
+    )
+
+    samples = collect_from_current_window(
+        app="notepad", app_richness="rich", split="train", session_id="sess1",
+        screenshot_seq=0, dataset_root=tmp_path, rng=random.Random(0),
+        visibility_check=_always_visible,
+        expect_title_contains="Notepad", crop_to_window=True,
+    )
+
+    assert [s.element["name"] for s in samples] == ["Inside"]
+
+
+def test_collect_defaults_to_a_full_desktop_frame():
+    # crop_to_window defaults off so a partial top-up of an existing
+    # full-desktop dataset can't silently introduce a second image format
+    import inspect
+
+    from computeruse.dataset.collector import collect_from_current_window as fn
+
+    assert inspect.signature(fn).parameters["crop_to_window"].default is False
+
+
+# --- occlusion (added 2026-07-19 after calculator_0022 labeled four buttons
+# hidden behind an open navigation flyout) ---
+
+
+def test_drop_occluded_keeps_visible_elements():
+    from computeruse.dataset.collector import drop_occluded
+
+    visible = UIElement(name="Save", control_type="Button", rect=(10, 10, 30, 30))
+    assert drop_occluded([visible], lambda rect: True) == [visible]
+
+
+def test_drop_occluded_removes_elements_hidden_behind_a_flyout():
+    from computeruse.dataset.collector import drop_occluded
+
+    covered = UIElement(name="Plus", control_type="Button", rect=(10, 10, 30, 30))
+    assert drop_occluded([covered], lambda rect: False) == []
+
+
+def test_drop_occluded_is_applied_before_instructions_are_generated(tmp_path):
+    # an occluded element must never reach labels.jsonl at all -- not be
+    # written and filtered later
+    hidden = {(100, 100, 140, 130)}
+
+    with patch("computeruse.dataset.collector.capture") as mock_capture, patch(
+        "computeruse.dataset.collector.get_foreground_window_info"
+    ) as mock_window:
+        mock_capture.return_value = _fake_screenshot()
+        mock_window.return_value = _fake_window([
+            UIElement(name="Visible", control_type="Button", rect=(10, 10, 40, 30)),
+            UIElement(name="BehindMenu", control_type="Button", rect=(100, 100, 140, 130)),
+        ])
+        samples = collect_from_current_window(
+            app="calculator",
+            app_richness="rich",
+            split="train",
+            session_id="s",
+            screenshot_seq=0,
+            dataset_root=tmp_path,
+            rng=random.Random(0),
+            visibility_check=lambda rect: tuple(rect) not in hidden,
+        )
+
+    assert [s.element["name"] for s in samples] == ["Visible"]
+    assert all("BehindMenu" not in s.instruction for s in samples)

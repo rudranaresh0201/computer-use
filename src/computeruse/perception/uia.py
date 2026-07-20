@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from pywinauto import Desktop
+from pywinauto.uia_element_info import UIAElementInfo
 
 
 @dataclass
@@ -29,6 +30,94 @@ class UIElement:
     def center(self) -> tuple[int, int]:
         left, top, right, bottom = self.rect
         return (left + right) // 2, (top + bottom) // 2
+
+
+@dataclass
+class WindowTree:
+    """The foreground window's own identity and rect alongside its element
+    list, so a caller can *verify* which window it actually got.
+
+    This exists because of a dataset-wide failure found 2026-07-19:
+    `get_foreground_window_tree` returns whatever is active at that instant,
+    and the dataset collector had no way to check that against the app it
+    believed it was labeling. When focus was stolen mid-run (the user typing
+    in another window, an app crashing after launch), the collector labeled
+    the *editor's* elements as "file_explorer" / "audacity" and wrote them
+    to labels.jsonl with no error. 196 of 542 rows -- 36% of the dataset,
+    including every row of one held-out app -- were wrong this way. Returning
+    the window's title/class/rect makes that verifiable instead of assumed.
+    """
+
+    title: str
+    class_name: str
+    rect: tuple[int, int, int, int]  # (left, top, right, bottom), real screen px
+    elements: list["UIElement"]
+
+
+def get_foreground_window_info(
+    max_elements: int = 400,
+    max_depth: int = 12,
+) -> Optional[WindowTree]:
+    """Like `get_foreground_window_tree`, but also reports which window was
+    walked. Returns None (not an exception) when no window is accessible,
+    matching this module's "empty means fall back to vision" contract."""
+    try:
+        window = Desktop(backend="uia").window(active_only=True, visible_only=True)
+        root = window.wrapper_object()
+        rect = root.rectangle()
+        title = root.window_text() or ""
+        try:
+            class_name = root.class_name() or ""
+        except Exception:
+            class_name = ""
+    except Exception:
+        return None
+
+    elements: list[UIElement] = []
+    _walk(root, elements, max_elements, max_depth, depth=0)
+    return WindowTree(
+        title=title,
+        class_name=class_name,
+        rect=(rect.left, rect.top, rect.right, rect.bottom),
+        elements=elements,
+    )
+
+
+def is_visible_at_center(rect: tuple[int, int, int, int], tolerance: int = 2) -> bool:
+    """True if this rect's centre point actually hits this element on screen.
+
+    UIA reports an element's rect whether or not anything is drawn on top of
+    it. When a menu, flyout or dialog opens, every control it covers is
+    still enumerated with a perfectly valid box -- so a naive collector
+    labels targets the model physically cannot see. Observed live
+    2026-07-19 in `calculator_0022`: with the navigation flyout open, the
+    +, -, x and = buttons behind it were all labeled.
+
+    The fix is a real hit-test. `UIAElementInfo.from_point` returns the
+    topmost element at a screen point; if that element is ours, its rect is
+    ours, and if it's a descendant of ours its rect sits inside ours. An
+    occluder (the flyout's list item) is neither, so containment separates
+    the two cases without needing runtime IDs.
+
+    Fails *open* -- if the hit-test errors, keep the element. Silently
+    dropping real training data on a flaky UIA call would be a worse bug
+    than the one this fixes.
+    """
+    left, top, right, bottom = rect
+    cx = (left + right) // 2
+    cy = (top + bottom) // 2
+    try:
+        topmost = UIAElementInfo.from_point(cx, cy)
+        hit = topmost.rectangle
+    except Exception:
+        return True
+
+    return (
+        hit.left >= left - tolerance
+        and hit.top >= top - tolerance
+        and hit.right <= right + tolerance
+        and hit.bottom <= bottom + tolerance
+    )
 
 
 def get_foreground_window_tree(
