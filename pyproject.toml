@@ -25,7 +25,15 @@ dev = [
 # Kaggle/Colab (ADR-0003's $0-budget commitment), with its own torch/CUDA
 # environment already provided -- not sourced from this list.
 training = [
-    "transformers>=4.45.0",
+    # Exact-pinned, not a floor: transformers>=4.45.0 let pip install
+    # whatever the latest release was at install time. Kaggle's environment
+    # happened to have 5.0.0 frozen in its image and everything worked; a
+    # fresh install elsewhere (Colab, 2026-07-23) grabbed a newer release
+    # that changed Qwen2-VL's forward pass to require an `mm_token_type_ids`
+    # input our collate_fn doesn't produce, and training crashed on the
+    # first step with a ValueError from deep inside the model's internals.
+    # Pin to the version this project is actually built and tested against.
+    "transformers==5.0.0",
     "jinja2>=3.1.0",
     "torch>=2.2.0",
     "torchvision>=0.17.0",
