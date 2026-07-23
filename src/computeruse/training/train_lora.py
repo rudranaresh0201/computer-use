@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
+from typing import Optional
 
 import torch
 from peft import get_peft_model
@@ -129,8 +130,18 @@ def build_training_args(output_dir: Path) -> TrainingArguments:
         warmup_ratio=0.03,
         seed=42,
         data_seed=42,
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        # Checkpoint every 100 steps, not once per epoch (~393 steps here) --
+        # a Kaggle interactive session can die mid-epoch for reasons that
+        # have nothing to do with training (2026-07-23: lost two runs the
+        # same day to session death before the first epoch boundary, with
+        # nothing to resume from). load_best_model_at_end requires save
+        # points to be a subset of eval points, so eval must move to the
+        # same cadence -- these are loss-only forward passes, not
+        # generation, so the added eval cost is small relative to training.
+        eval_strategy="steps",
+        eval_steps=100,
+        save_strategy="steps",
+        save_steps=100,
         # Without this, a 3-epoch run keeps epoch 3 even if epoch 2 had the
         # better dev loss -- i.e. it silently reports the overfit checkpoint
         # on a 252-example dataset, where overfitting by epoch 3 is likely.
@@ -182,12 +193,32 @@ def build_trainer(dataset_root: Path, output_dir: Path) -> Trainer:
     )
 
 
+def find_last_checkpoint(output_dir: Path) -> Optional[str]:
+    """Find the most recent checkpoint-N dir under output_dir, or None.
+    Lets a relaunch (Kaggle session died, or any other interruption) pick
+    up from the last save_steps=100 checkpoint instead of restarting at
+    step 0 -- see build_training_args' save_steps comment."""
+    if not output_dir.exists():
+        return None
+    checkpoints = [
+        p for p in output_dir.iterdir()
+        if p.is_dir() and p.name.startswith("checkpoint-")
+    ]
+    if not checkpoints:
+        return None
+    latest = max(checkpoints, key=lambda p: int(p.name.split("-")[1]))
+    return str(latest)
+
+
 def main(
     dataset_root: Path = Path("data/gui_grounding"),
     output_dir: Path = Path("runs/lora_grounder"),
 ) -> None:
     trainer = build_trainer(dataset_root, output_dir)
-    trainer.train()
+    resume_from = find_last_checkpoint(output_dir)
+    if resume_from:
+        print(f"Resuming from checkpoint: {resume_from}")
+    trainer.train(resume_from_checkpoint=resume_from)
     trainer.save_model(str(output_dir / "final"))
 
 

@@ -10,7 +10,11 @@ from pathlib import Path
 
 import torch
 
-from computeruse.training.train_lora import build_training_args, cast_trainable_params_to_fp32
+from computeruse.training.train_lora import (
+    build_training_args,
+    cast_trainable_params_to_fp32,
+    find_last_checkpoint,
+)
 
 
 def test_training_args_match_documented_starting_hyperparameters():
@@ -45,10 +49,33 @@ def test_training_args_use_reentrant_checkpointing_for_qwen2vl_compatibility():
     assert args.gradient_checkpointing_kwargs == {"use_reentrant": True}
 
 
-def test_training_args_evaluates_and_saves_every_epoch():
+def test_training_args_evaluates_and_saves_every_100_steps():
+    # Changed from "epoch" (~393 steps here) to steps=100 after losing two
+    # runs the same day (2026-07-23) to Kaggle session death before the
+    # first epoch boundary -- see build_training_args' save_steps comment.
+    # load_best_model_at_end requires save points to be a subset of eval
+    # points, so both moved together.
     args = build_training_args(Path("runs/test"))
-    assert args.eval_strategy == "epoch"
-    assert args.save_strategy == "epoch"
+    assert args.eval_strategy == "steps"
+    assert args.eval_steps == 100
+    assert args.save_strategy == "steps"
+    assert args.save_steps == 100
+
+
+def test_find_last_checkpoint_returns_none_when_output_dir_missing(tmp_path):
+    assert find_last_checkpoint(tmp_path / "does_not_exist") is None
+
+
+def test_find_last_checkpoint_returns_none_when_no_checkpoints(tmp_path):
+    (tmp_path / "some_other_file.txt").write_text("x")
+    assert find_last_checkpoint(tmp_path) is None
+
+
+def test_find_last_checkpoint_picks_highest_step_number(tmp_path):
+    (tmp_path / "checkpoint-100").mkdir()
+    (tmp_path / "checkpoint-300").mkdir()
+    (tmp_path / "checkpoint-200").mkdir()
+    assert find_last_checkpoint(tmp_path) == str(tmp_path / "checkpoint-300")
 
 
 def test_training_args_enable_real_mixed_precision():
