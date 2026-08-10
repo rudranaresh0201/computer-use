@@ -129,3 +129,21 @@ def test_training_args_keeps_unused_columns_for_custom_collator():
     # default HF column-pruning would otherwise silently drop.
     args = build_training_args(Path("runs/test"))
     assert args.remove_unused_columns is False
+
+
+def test_training_args_max_steps_defaults_to_full_three_epoch_schedule():
+    # -1 is HF's sentinel for "ignore max_steps, use num_train_epochs" --
+    # local/unconstrained runs must be unaffected by the Kaggle-budget
+    # override added 2026-08-10.
+    args = build_training_args(Path("runs/test"))
+    assert args.max_steps == -1
+    assert args.num_train_epochs == 3
+
+
+def test_training_args_max_steps_override_hard_caps_the_run():
+    # added 2026-08-10: a fixed-hours Kaggle session needs the run to stop
+    # (and save_model) well inside its wall-clock budget, without
+    # shrinking the dataset itself. HF's Trainer treats max_steps > 0 as
+    # taking precedence over num_train_epochs.
+    args = build_training_args(Path("runs/test"), max_steps=700)
+    assert args.max_steps == 700

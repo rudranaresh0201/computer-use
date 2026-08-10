@@ -73,9 +73,17 @@ def cast_trainable_params_to_fp32(model):
     return model
 
 
-def build_training_args(output_dir: Path) -> TrainingArguments:
+def build_training_args(output_dir: Path, max_steps: Optional[int] = None) -> TrainingArguments:
     return TrainingArguments(
         output_dir=str(output_dir),
+        # -1 (default) means "ignore, use num_train_epochs=3 below". A
+        # caller passes a real value to hard-cap wall-clock time (e.g. a
+        # Kaggle session with a fixed hours budget) without shrinking the
+        # dataset itself -- coverage of all 14 apps matters for H3 more
+        # than finishing all 3 epochs does. See the Kaggle notebook's
+        # training cell for the budget arithmetic behind whatever value
+        # it passes.
+        max_steps=max_steps if max_steps is not None else -1,
         # Real mixed precision, not "the weights happen to be fp16".
         # fp16=True is what makes Trainer wrap the step in torch.autocast
         # AND attach a GradScaler; without it, the backward pass runs
@@ -157,12 +165,15 @@ def build_training_args(output_dir: Path) -> TrainingArguments:
     )
 
 
-def build_trainer(dataset_root: Path, output_dir: Path) -> Trainer:
+def build_trainer(dataset_root: Path, output_dir: Path, max_steps: Optional[int] = None) -> Trainer:
     """Wires the real model + LoRA adapter + our GroundingDataset/collate_fn
     into a HF Trainer. Not called by tests -- downloads the ~4GB base
     model and needs a GPU to run in reasonable time; this function exists
     so the Kaggle notebook is `from computeruse.training.train_lora import
-    build_trainer; build_trainer(...).train()`, not a copy-pasted script."""
+    build_trainer; build_trainer(...).train()`, not a copy-pasted script.
+
+    `max_steps` hard-caps the run below the full 3-epoch schedule -- see
+    build_training_args' docstring comment."""
     model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, torch_dtype=torch.float16)
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = get_peft_model(model, build_lora_config())
@@ -186,7 +197,7 @@ def build_trainer(dataset_root: Path, output_dir: Path) -> Trainer:
 
     return Trainer(
         model=model,
-        args=build_training_args(output_dir),
+        args=build_training_args(output_dir, max_steps=max_steps),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=partial(collate_fn, pad_token_id=processor.tokenizer.pad_token_id),
