@@ -6,7 +6,9 @@ emits into labels.jsonl -- just the fields uia_only.py actually reads
 (element name/control_type/bbox_real), not a full LabeledSample.
 """
 
-from computeruse.eval.uia_only import UiaOnlyPrediction, is_hit, predict
+import json
+
+from computeruse.eval.uia_only import UiaOnlyPrediction, is_hit, predict, run_arm, to_eval_records
 
 
 def _row(name: str, control_type: str, bbox: tuple[int, int, int, int]) -> dict:
@@ -93,3 +95,89 @@ def test_is_hit_false_when_point_outside_bbox():
 def test_is_hit_false_for_a_miss():
     prediction = UiaOnlyPrediction(center=None, matched_name=None, ambiguous=False)
     assert not is_hit(prediction, ground_truth_bbox=(10, 10, 30, 30))
+
+
+def _label_row(id_, screenshot_id, app, richness, split, instruction, name, control_type, bbox):
+    return {
+        "id": id_,
+        "screenshot_id": screenshot_id,
+        "app": app,
+        "app_richness": richness,
+        "split": split,
+        "instruction": instruction,
+        "element": {"name": name, "control_type": control_type, "bbox_real": list(bbox)},
+    }
+
+
+def _write_labels(path, rows):
+    with path.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+
+
+def test_run_arm_scores_a_resolvable_example_as_a_hit(tmp_path):
+    rows = [
+        _label_row("n1", "shot1", "notepad", "rich", "dev", "Click Save", "Save", "Button", (10, 10, 30, 30)),
+    ]
+    _write_labels(tmp_path / "labels.jsonl", rows)
+
+    results = run_arm(tmp_path)
+    assert len(results) == 1
+    assert results[0].available is True
+    assert results[0].hit is True
+    assert results[0].app == "notepad"
+    assert results[0].app_richness == "rich"
+    assert results[0].split == "dev"
+
+
+def test_run_arm_excludes_train_split_by_default(tmp_path):
+    rows = [
+        _label_row("n1", "shot1", "notepad", "rich", "train", "Click Save", "Save", "Button", (10, 10, 30, 30)),
+        _label_row("n2", "shot1", "notepad", "rich", "dev", "Click Save", "Save", "Button", (10, 10, 30, 30)),
+    ]
+    _write_labels(tmp_path / "labels.jsonl", rows)
+
+    results = run_arm(tmp_path)
+    assert [r.example_id for r in results] == ["n2"]
+
+
+def test_run_arm_marks_ambiguous_examples_unavailable(tmp_path):
+    # both elements share a template -> byte-identical instructions -> unresolvable
+    rows = [
+        _label_row("n1", "shot1", "notepad", "rich", "dev", "Click Settings", "Settings", "Button", (0, 0, 10, 10)),
+        _label_row("n2", "shot1", "notepad", "rich", "dev", "Click Settings", "Settings", "MenuItem", (20, 0, 30, 10)),
+    ]
+    _write_labels(tmp_path / "labels.jsonl", rows)
+
+    results = run_arm(tmp_path)
+    assert all(r.available is False for r in results)
+    assert all(r.hit is False for r in results)
+
+
+def test_run_arm_candidates_are_scoped_to_the_same_screenshot(tmp_path):
+    # a Cancel button on a *different* screenshot must not become a false
+    # candidate for this example -- run_arm groups by screenshot_id, not
+    # by app, before calling predict()
+    rows = [
+        _label_row("n1", "shot1", "notepad", "rich", "dev", "Click Save", "Save", "Button", (10, 10, 30, 30)),
+        _label_row("n2", "shot2", "notepad", "rich", "dev", "Click Cancel", "Cancel", "Button", (40, 10, 60, 30)),
+    ]
+    _write_labels(tmp_path / "labels.jsonl", rows)
+
+    results = run_arm(tmp_path)
+    by_id = {r.example_id: r for r in results}
+    assert by_id["n1"].hit is True
+    assert by_id["n2"].hit is True
+
+
+def test_to_eval_records_drops_available_and_tags_the_arm(tmp_path):
+    rows = [
+        _label_row("n1", "shot1", "notepad", "rich", "dev", "Click Save", "Save", "Button", (10, 10, 30, 30)),
+    ]
+    _write_labels(tmp_path / "labels.jsonl", rows)
+
+    records = to_eval_records(run_arm(tmp_path))
+    assert len(records) == 1
+    assert records[0].arm == "uia_only"
+    assert records[0].hit is True
+    assert not hasattr(records[0], "available")

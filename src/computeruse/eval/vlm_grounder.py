@@ -34,9 +34,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from computeruse.eval.report import EvalRecord
 from computeruse.training.chat_format import to_conversation
 from computeruse.training.dataset import resolve_path
 from computeruse.training.prepare_dataset import COORD_NORM_RANGE, TrainingExample
+
+# The base model both VLM arms score. Duplicated from train_lora.MODEL_ID
+# rather than imported, deliberately: train_lora pulls in peft and torch,
+# and this module is otherwise dependency-light (the caller supplies an
+# already-loaded model). test_model_id_matches_the_trained_base_model
+# guards the two from drifting -- if they ever disagree, the zero-shot arm
+# would be scoring a different base model than the fine-tuned arm was
+# built on, which silently invalidates the H1 comparison.
+MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
 
 # Matches "(423,551)", "(423, 551)", or the same embedded in surrounding
 # text ("The point is (423,551).") -- generated text isn't guaranteed to be
@@ -199,6 +209,28 @@ def evaluate_arm(
             )
         )
     return results
+
+
+def to_eval_records(
+    results: list[ArmResult], arm: str, richness_by_app: dict[str, str]
+) -> list[EvalRecord]:
+    """Join ArmResult against apps.yaml's richness (via
+    dataset.registry.load_registry -- pass `{c.name: c.richness for c in
+    load_registry(...)}`) to get report.build_report's shape. `arm` is
+    "zero_shot" or "fine_tuned" -- the two arms this module scores; the
+    caller decides which by whether a LoRA adapter was loaded before
+    calling evaluate_arm, not anything in ArmResult itself."""
+    return [
+        EvalRecord(
+            example_id=r.example_id,
+            arm=arm,
+            app=r.app,
+            app_richness=richness_by_app[r.app],
+            split=r.split,
+            hit=r.hit,
+        )
+        for r in results
+    ]
 
 
 def summarize(results: list[ArmResult]) -> dict[str, float]:

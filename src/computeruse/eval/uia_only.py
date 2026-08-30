@@ -24,7 +24,9 @@ slice (rich-tree vs. weak-tree) in the full ablation report is for.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from computeruse.dataset.collector import (
@@ -32,6 +34,7 @@ from computeruse.dataset.collector import (
     _INSTRUCTION_TEMPLATES,
     _disambiguated_names,
 )
+from computeruse.eval.report import EvalRecord
 from computeruse.perception.uia import UIElement
 
 
@@ -113,3 +116,81 @@ def is_hit(prediction: UiaOnlyPrediction, ground_truth_bbox: tuple[int, int, int
     left, top, right, bottom = ground_truth_bbox
     x, y = prediction.center
     return left <= x <= right and top <= y <= bottom
+
+
+@dataclass
+class UiaArmResult:
+    """Per-example outcome plus `available` -- whether UIA resolved a
+    prediction at all (matches != 0, not ambiguous). The hybrid arm
+    (eval/hybrid.py) needs this to decide whether to trust this result or
+    fall back to the fine-tuned grounder; EvalRecord alone (hit/miss only)
+    can't distinguish "UIA confidently pointed at the wrong element" from
+    "UIA had nothing to say", and hybrid's policy only defers on the
+    latter."""
+
+    example_id: str
+    app: str
+    app_richness: str
+    split: str
+    available: bool
+    hit: bool
+
+
+def run_arm(
+    dataset_root: Path,
+    splits: tuple[str, ...] = ("dev", "test_same_app", "test_held_out_app"),
+) -> list[UiaArmResult]:
+    """Run the UIA-only arm over every labels.jsonl row in `splits`. CPU/
+    text-only -- no model, no GPU, safe to run on this machine against the
+    real dataset (unlike vlm_grounder.evaluate_arm).
+
+    Candidates for each row are every element sharing its screenshot_id
+    (labels.jsonl's closest proxy for "the UIA tree behind this
+    screenshot" -- see _candidate_elements), which includes the row's own
+    ground-truth element as well as its siblings, matching what predict()
+    would see from a live UIA query.
+    """
+    rows = []
+    with (dataset_root / "labels.jsonl").open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+
+    by_screenshot: dict[str, list[dict]] = {}
+    for row in rows:
+        by_screenshot.setdefault(row["screenshot_id"], []).append(row)
+
+    results: list[UiaArmResult] = []
+    for row in rows:
+        if row["split"] not in splits:
+            continue
+        screenshot_rows = by_screenshot[row["screenshot_id"]]
+        prediction = predict(row["instruction"], screenshot_rows)
+        results.append(
+            UiaArmResult(
+                example_id=row["id"],
+                app=row["app"],
+                app_richness=row["app_richness"],
+                split=row["split"],
+                available=prediction.center is not None,
+                hit=is_hit(prediction, tuple(row["element"]["bbox_real"])),
+            )
+        )
+    return results
+
+
+def to_eval_records(results: list[UiaArmResult]) -> list[EvalRecord]:
+    """Drop `available` (an arm-internal detail hybrid.combine needs, but
+    report.build_report doesn't) to get the shape build_report expects."""
+    return [
+        EvalRecord(
+            example_id=r.example_id,
+            arm="uia_only",
+            app=r.app,
+            app_richness=r.app_richness,
+            split=r.split,
+            hit=r.hit,
+        )
+        for r in results
+    ]

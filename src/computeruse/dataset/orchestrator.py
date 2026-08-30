@@ -31,7 +31,7 @@ from pywinauto import Desktop
 
 from ..action.controller import ActionController
 from ..action.schema import Action, ActionType
-from ..perception.uia import UIElement, get_foreground_window_tree
+from ..perception.uia import UIElement, get_foreground_window_info, get_foreground_window_tree
 from .collector import collect_from_current_window, write_samples
 from .registry import AppConfig, AppState, DriveStep, GeometryVariant, load_registry
 
@@ -167,6 +167,41 @@ def _launch(config: AppConfig) -> None:
         os.startfile(config.launch.target)  # ms-settings: URIs, .msc files
     else:
         raise OrchestrationError(f"unknown launch method: {config.launch.method!r}")
+
+
+class UnexpectedSessionStateError(OrchestrationError):
+    pass
+
+
+def _verify_clean_single_instance_session(config: AppConfig) -> None:
+    """`_launch`'s single_instance guard only catches attaching to an
+    *already-running* process (via tasklist). Confirmed live 2026-07-19:
+    Windows 11 Notepad also persists its own on-disk session state
+    (LocalState/TabState) and restores it on a cold launch -- with
+    notepad.exe verified not running beforehand, so the process check never
+    had anything to catch. 21 screenshots captured a real '.env' tab that no
+    drive step ever opened. This checks what actually got focused, not what
+    was launched: any tab whose name doesn't look like a fresh document
+    means the session was restored, not created.
+
+    Deliberately raises rather than closing the unexpected tab itself --
+    programmatically dismissing an unknown real, possibly-unsaved file is a
+    worse action than just refusing to collect against it."""
+    if not config.single_instance:
+        return
+    info = get_foreground_window_info()
+    if info is None:
+        return
+    tabs = [e for e in info.elements if e.control_type == "TabItem"]
+    unexpected = [t.name for t in tabs if not t.name.strip().lower().startswith("untitled")]
+    if len(tabs) > 1 or unexpected:
+        raise UnexpectedSessionStateError(
+            f"{config.name} opened with unexpected tab(s) {[t.name for t in tabs]!r} -- "
+            f"single_instance apps can restore real tabs from their own on-disk session "
+            f"state even on a cold launch, which the 'is a process already running' guard "
+            f"cannot catch. Close every tab by hand (and check for a 'resume previous "
+            f"session' setting inside {config.name} itself) before re-running collection."
+        )
 
 
 def _window_matches(window, title_contains: str, window_class_contains: Optional[str]) -> bool:
@@ -443,6 +478,7 @@ def run(
                 timeout=app_config.launch_timeout_seconds,
                 window_class_contains=app_config.window_class_contains,
             )
+            _verify_clean_single_instance_session(app_config)
         except Exception as exc:
             logger.error("app=%s failed to launch/focus, skipping app: %s", app_config.name, exc)
             continue

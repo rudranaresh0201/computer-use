@@ -1,4 +1,88 @@
-# GUI Grounding Dataset (v2, frozen 2026-07-16; v1 history below preserved as-is)
+# GUI Grounding Dataset (v3, current as of 2026-07-20; v2/v1 history below preserved as-is)
+
+## v3 (2026-07-19/20): wrong-window bug, occlusion filter, geometry expansion, a third Notepad PII incident
+
+Rendering label boxes onto their screenshots (never done before) showed 196
+of 542 v2 rows (36%) were the code editor's UI mislabeled as `file_explorer`
+or `audacity` — `collector.collect_from_current_window` had nothing tying
+"the window it walked" to "the app it believed it was collecting," so any
+focus loss mid-run (typing elsewhere, an app crashing seconds after launch)
+silently redirected labeling. 100% of the dataset's only `audacity`
+screenshot was wrong, which meant H3's generalization claim rested on
+nothing. Full root-cause writeup: `docs/journal.md`, 2026-07-19.
+
+**Fixes**: `uia.get_foreground_window_info()` reports the walked window's
+own title/class/rect so the collector can verify it and raise
+`WindowMismatchError` instead of labeling (checked before every state, not
+once per app). `uia.is_visible_at_center()` hit-tests via
+`UIAElementInfo.from_point` so controls hidden behind an open menu/dialog
+are dropped (`calculator_0022` had 4 buttons labeled behind a flyout).
+`scripts/validate_dataset.py` is a hard gate (wrong-window / out-of-bounds /
+ambiguous / leaked / PII rows) — run before every upload, non-negotiable.
+Registry expanded from 2-3 states/app to 6-10, each captured at 2-3 window
+sizes (`registry.GeometryVariant`); variants of one state share its split so
+resizes of near-duplicate screens can't leak across train/dev.
+
+**Training-side fixes, same session**: `train_lora` loaded fp16 weights but
+never set `fp16=True`, so no `GradScaler` was attached and small LoRA
+gradient updates were silently underflowing to zero — the actual cause of
+run-to-run instability previously (wrongly) blamed on the learning rate.
+Fixed with `cast_trainable_params_to_fp32` + `fp16=True`, `warmup_ratio`,
+and `load_best_model_at_end`. The notebook now evaluates the full dev split
+via `eval/vlm_grounder` instead of eyeballing the same 5 examples.
+
+**A third real PII incident (2026-07-20), and what it cost**: the 2026-07-16
+`single_instance` guard only checks whether `notepad.exe` is *already
+running* (via `tasklist`) before launching. Windows 11 Notepad separately
+persists its own on-disk session state (`LocalState/TabState`) and restores
+it on a **cold** launch — a mechanism the "already running" check cannot
+see. 21 of the 24 Notepad screenshots this session (`notepad_0004`–`0024`)
+opened with a real `.env` tab restored from a previous real session and
+captured its tab name (`.env. Unmodified.`) into `labels.jsonl`; because the
+driven states type placeholder text with no explicit "new tab" step first,
+it's also possible that text was typed into that real tab's in-memory
+buffer if it was the active one. Never reached GitHub or any third party —
+the dataset itself (`labels.jsonl`, `images/`, the upload zip) has never
+been git-tracked, and the Kaggle upload zip built from this data was caught
+and deleted before upload. Quarantined (21 screenshots / 276 rows removed,
+backed up then permanently deleted once confirmed) and the affected images
+are gone — leaving genuine uncertainty about whether real file content was
+visible in the deleted screenshots, not just the tab name, since that
+wasn't verified before the backup was cleared.
+
+**Real fix**: `orchestrator._verify_clean_single_instance_session` now
+checks what actually got focused after launch, not just what was launched —
+any tab whose name isn't a fresh `Untitled` document means the session was
+restored, and it raises rather than closing the tab itself (closing an
+unknown real file programmatically would be a worse action than refusing to
+collect against it). 4 new tests in `tests/test_orchestrator.py`. Verified
+live: the very next re-collection attempt hit a *second*, different
+leftover tab (`demo_target.txt. Modified.`, likely residue from the Phase 1
+demo scripts) and correctly refused instead of mislabeling anything —
+proof the guard generalizes past the specific `.env` case it was written
+for. Also found and removed during this cleanup: 9 orphaned image files on
+disk with no corresponding `labels.jsonl` row (stale leftovers from earlier
+collection attempts, dated 2026-07-16 and 2026-07-19) — `validate_dataset.py`
+only ever checks referenced rows, not stray files, so the upload zip is now
+built strictly from `labels.jsonl`'s referenced paths rather than a glob of
+`images/`, to stop any future orphan from silently riding along.
+
+**Update, same day**: Notepad re-collected clean after a full manual
+close/reopen cycle — 24/24 states, no session-restore recurrence.
+**Final v3 state: 3163 rows across 200 screenshots, `validate_dataset.py`
+passes with 0 errors** (2 expected warnings: GIMP's 2 chrome-only shots, a
+known consequence of its 5-15s crash window, not a new issue). 14/14 apps,
+every currently-defined state collected. 200/210 against the pre-registered
+volume target — the remaining 10 are entirely GIMP's deliberately-capped
+2-state scope (see its `apps.yaml` comment), not a gap. `gui_grounding_upload.zip`
+rebuilt strictly from `labels.jsonl`'s referenced paths.
+
+| Split | Examples |
+|---|---|
+| `train` | 1572 |
+| `dev` | 555 |
+| `test_same_app` | 246 |
+| `test_held_out_app` | 790 |
 
 ## v2 (2026-07-16): full 14/14 app coverage, four pipeline bugs fixed
 

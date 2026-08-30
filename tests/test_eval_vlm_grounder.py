@@ -5,6 +5,8 @@ evaluate_arm) needs a real ~4GB model and a GPU -- exercised from the
 Kaggle notebook, not here, same split as train_lora.py's own test coverage.
 """
 
+import pytest
+
 from computeruse.eval.vlm_grounder import (
     ArmResult,
     center_distance_normalized,
@@ -12,6 +14,7 @@ from computeruse.eval.vlm_grounder import (
     normalize_bbox,
     parse_point,
     summarize_diagnostics,
+    to_eval_records,
 )
 from computeruse.training.prepare_dataset import normalized_center
 
@@ -130,3 +133,31 @@ def test_summarize_diagnostics_handles_an_all_unparseable_arm():
 
 def test_summarize_diagnostics_handles_no_results():
     assert summarize_diagnostics([])["parse_rate"] == 0.0
+
+
+def test_to_eval_records_joins_richness_by_app_and_tags_the_arm():
+    results = [_result(10.0, hit=True)]  # app="calculator"
+    records = to_eval_records(results, arm="zero_shot", richness_by_app={"calculator": "rich"})
+    assert records[0].arm == "zero_shot"
+    assert records[0].app_richness == "rich"
+    assert records[0].hit is True
+
+
+def test_to_eval_records_raises_on_an_app_missing_from_the_registry_join():
+    # a silent default here would hide a real bug (typo'd app name, stale
+    # apps.yaml) rather than surface it -- same reasoning as
+    # hybrid.combine's KeyError on a missing fallback.
+    results = [_result(10.0, hit=True)]
+    with pytest.raises(KeyError):
+        to_eval_records(results, arm="zero_shot", richness_by_app={})
+
+
+def test_model_id_matches_the_trained_base_model():
+    # H1 compares "base model, no adapter" against "same base model, our
+    # adapter". If eval and training ever name different bases, that
+    # comparison silently stops meaning anything -- the numbers still
+    # render fine.
+    from computeruse.eval.vlm_grounder import MODEL_ID as EVAL_MODEL_ID
+    from computeruse.training.train_lora import MODEL_ID as TRAIN_MODEL_ID
+
+    assert EVAL_MODEL_ID == TRAIN_MODEL_ID

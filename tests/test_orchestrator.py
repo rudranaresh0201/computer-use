@@ -14,12 +14,14 @@ import pytest
 from computeruse.dataset.orchestrator import (
     OrchestrationError,
     ProgressLedger,
+    UnexpectedSessionStateError,
     _drive_step,
     _find_element,
+    _verify_clean_single_instance_session,
     run,
 )
 from computeruse.dataset.registry import AppConfig, AppLaunch, AppState, DriveStep
-from computeruse.perception.uia import UIElement
+from computeruse.perception.uia import UIElement, WindowTree
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +140,7 @@ def test_find_element_matches_on_name_and_control_type(mock_tree):
 # ---------------------------------------------------------------------------
 
 
-def _app(name: str, states: list[AppState]) -> AppConfig:
+def _app(name: str, states: list[AppState], single_instance: bool = False) -> AppConfig:
     return AppConfig(
         name=name,
         pool="train",
@@ -146,6 +148,7 @@ def _app(name: str, states: list[AppState]) -> AppConfig:
         launch=AppLaunch(method="exe", target=f"{name}.exe"),
         window_title_contains=name,
         states=states,
+        single_instance=single_instance,
     )
 
 
@@ -252,6 +255,82 @@ def test_run_continues_to_next_app_when_launch_fails(
 
     assert not ledger.is_done("broken_app", "default")
     assert ledger.is_done("notepad", "empty")
+
+
+# ---------------------------------------------------------------------------
+# _verify_clean_single_instance_session: catches a restored real session
+# that _launch's "is a process already running" check can't see (2026-07-19
+# .env-tab incident -- see docstring on the function under test)
+# ---------------------------------------------------------------------------
+
+
+def _window(elements: list[UIElement]) -> WindowTree:
+    return WindowTree(title="Notepad", class_name="Notepad", rect=(0, 0, 800, 600), elements=elements)
+
+
+@patch("computeruse.dataset.orchestrator.get_foreground_window_info")
+def test_verify_clean_session_skips_check_for_non_single_instance_apps(mock_info):
+    config = _app("paint", [], single_instance=False)
+    _verify_clean_single_instance_session(config)
+    mock_info.assert_not_called()
+
+
+@patch("computeruse.dataset.orchestrator.get_foreground_window_info")
+def test_verify_clean_session_passes_with_only_a_fresh_untitled_tab(mock_info):
+    mock_info.return_value = _window(
+        [UIElement(name="Untitled", control_type="TabItem", rect=(0, 0, 10, 10))]
+    )
+    config = _app("notepad", [], single_instance=True)
+    _verify_clean_single_instance_session(config)  # must not raise
+
+
+@patch("computeruse.dataset.orchestrator.get_foreground_window_info")
+def test_verify_clean_session_raises_on_a_real_restored_tab(mock_info):
+    mock_info.return_value = _window(
+        [UIElement(name=".env. Unmodified.", control_type="TabItem", rect=(0, 0, 10, 10))]
+    )
+    config = _app("notepad", [], single_instance=True)
+    with pytest.raises(UnexpectedSessionStateError):
+        _verify_clean_single_instance_session(config)
+
+
+@patch("computeruse.dataset.orchestrator.get_foreground_window_info")
+def test_verify_clean_session_raises_on_more_than_one_tab_even_if_all_untitled(mock_info):
+    mock_info.return_value = _window(
+        [
+            UIElement(name="Untitled", control_type="TabItem", rect=(0, 0, 10, 10)),
+            UIElement(name="Untitled", control_type="TabItem", rect=(10, 0, 20, 10)),
+        ]
+    )
+    config = _app("notepad", [], single_instance=True)
+    with pytest.raises(UnexpectedSessionStateError):
+        _verify_clean_single_instance_session(config)
+
+
+@patch("computeruse.dataset.orchestrator.write_samples")
+@patch("computeruse.dataset.orchestrator.collect_from_current_window")
+@patch("computeruse.dataset.orchestrator.get_foreground_window_info")
+@patch("computeruse.dataset.orchestrator._find_and_focus_window")
+@patch("computeruse.dataset.orchestrator._launch")
+@patch("computeruse.dataset.orchestrator.load_registry")
+def test_run_skips_app_when_session_state_is_unexpected(
+    mock_load, mock_launch, mock_focus, mock_info, mock_collect, mock_write, tmp_path
+):
+    mock_load.return_value = [_app("notepad", [AppState(name="empty", split="train")], single_instance=True)]
+    mock_info.return_value = _window(
+        [UIElement(name=".env. Unmodified.", control_type="TabItem", rect=(0, 0, 10, 10))]
+    )
+    mock_collect.return_value = []
+
+    ledger = run(
+        registry_path=tmp_path / "apps.yaml",
+        dataset_root=tmp_path,
+        controller=MagicMock(),
+        session_id="sess1",
+    )
+
+    assert not ledger.is_done("notepad", "empty")
+    mock_collect.assert_not_called()
 
 
 @patch("computeruse.dataset.orchestrator.write_samples")
