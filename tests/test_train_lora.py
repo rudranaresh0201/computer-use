@@ -8,12 +8,15 @@ machine runs.
 
 from pathlib import Path
 
+import pytest
 import torch
 
 from computeruse.training.train_lora import (
     build_training_args,
     cast_trainable_params_to_fp32,
     find_last_checkpoint,
+    resolve_precision,
+    torch_dtype_for,
 )
 
 
@@ -84,10 +87,58 @@ def test_training_args_enable_real_mixed_precision():
     # no GradScaler and the backward pass ran unscaled in fp16. Small
     # gradients underflowed to zero silently -- training "worked" (loss
     # looked sane, dominated by the frozen base) while the adapter barely
-    # moved, and which updates survived depended on batch order. Do not
-    # remove fp16=True without also changing how the model is loaded.
-    args = build_training_args(Path("runs/test"))
+    # moved, and which updates survived depended on batch order. Exactly
+    # one of fp16/bf16 must be on, and it must match how the model was
+    # loaded (torch_dtype_for).
+    args = build_training_args(Path("runs/test"), precision="fp16")
     assert args.fp16 is True
+    assert args.bf16 is False
+
+
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() and torch.cuda.is_bf16_supported()),
+    reason="TrainingArguments(bf16=True) refuses to construct without an Ampere+ GPU "
+    "-- which is itself the guard that a non-bf16 pod fails loudly instead of silently",
+)
+def test_training_args_bf16_mode_turns_fp16_off():
+    # On Ampere/Ada (a rented pod, not Kaggle's Turing T4) bf16 is the
+    # right mode: fp32's exponent range means gradients can't underflow,
+    # so no GradScaler is involved at all. Setting both would be
+    # incoherent -- autocast has one compute dtype.
+    args = build_training_args(Path("runs/test"), precision="bf16")
+    assert args.bf16 is True
+    assert args.fp16 is False
+
+
+def test_resolve_precision_falls_back_to_fp16_without_a_bf16_gpu():
+    # Turing/CPU has no bf16 tensor cores; claiming bf16 there would run
+    # emulated and slower, not faster.
+    assert resolve_precision() in {"fp16", "bf16"}
+
+
+def test_torch_dtype_matches_the_precision_mode():
+    assert torch_dtype_for("fp16") is torch.float16
+    assert torch_dtype_for("bf16") is torch.bfloat16
+
+
+def test_torch_dtype_rejects_an_unknown_precision():
+    # a typo here would otherwise silently load the base model in fp32 and
+    # OOM, or mismatch autocast's compute dtype.
+    try:
+        torch_dtype_for("fp8")
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for an unknown precision")
+
+
+def test_effective_batch_size_is_preserved_when_trading_batch_for_accumulation():
+    # batch=2/accum=2 on a 24GB card is the same experiment as
+    # batch=1/accum=4 on a 15GB T4 -- lr was reasoned about at an
+    # effective batch of 4, and only the product must stay fixed.
+    t4 = build_training_args(Path("runs/test"), per_device_batch_size=1, gradient_accumulation_steps=4)
+    pod = build_training_args(Path("runs/test"), per_device_batch_size=2, gradient_accumulation_steps=2)
+    assert t4.per_device_train_batch_size * t4.gradient_accumulation_steps == 4
+    assert pod.per_device_train_batch_size * pod.gradient_accumulation_steps == 4
 
 
 def test_training_args_select_the_best_dev_checkpoint_not_the_last():

@@ -52,6 +52,36 @@ def _disable_peft_torchao_dispatch() -> None:
 _disable_peft_torchao_dispatch()
 
 
+def resolve_precision() -> str:
+    """Pick the mixed-precision mode this GPU can actually do well.
+
+    Ampere and newer (RTX 3090/4090, A40, A100, H100) have bf16 tensor
+    cores; bf16 carries fp32's exponent range, so gradients cannot
+    underflow the way they did in fp16 on 2026-07-19 and no GradScaler is
+    needed. The T4 (Turing) has no bf16 tensor cores at all, so the
+    Kaggle path stays on fp16 + GradScaler, which is correct there.
+
+    Detected rather than hardcoded so the same code runs unmodified on
+    Kaggle's T4 and on a rented Ada/Ampere pod -- the failure mode this
+    avoids is a "bf16 everywhere" constant silently falling back to
+    emulated bf16 on Turing and running several times slower.
+    """
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        return "bf16"
+    return "fp16"
+
+
+def torch_dtype_for(precision: str) -> torch.dtype:
+    """The dtype the frozen base model is loaded in. Must agree with
+    whichever of fp16=/bf16= is set in TrainingArguments -- autocast
+    assumes the model weights already match its own compute dtype."""
+    if precision == "bf16":
+        return torch.bfloat16
+    if precision == "fp16":
+        return torch.float16
+    raise ValueError(f"unknown precision {precision!r} -- expected 'fp16' or 'bf16'")
+
+
 def cast_trainable_params_to_fp32(model):
     """Keep the frozen base model in fp16 (it never receives an optimizer
     update, and fp16 is what makes a 2B model fit a 15GB T4), but hold the
@@ -73,7 +103,14 @@ def cast_trainable_params_to_fp32(model):
     return model
 
 
-def build_training_args(output_dir: Path, max_steps: Optional[int] = None) -> TrainingArguments:
+def build_training_args(
+    output_dir: Path,
+    max_steps: Optional[int] = None,
+    precision: Optional[str] = None,
+    per_device_batch_size: int = 1,
+    gradient_accumulation_steps: int = 4,
+) -> TrainingArguments:
+    precision = precision or resolve_precision()
     return TrainingArguments(
         output_dir=str(output_dir),
         # -1 (default) means "ignore, use num_train_epochs=3 below". A
@@ -85,15 +122,30 @@ def build_training_args(output_dir: Path, max_steps: Optional[int] = None) -> Tr
         # it passes.
         max_steps=max_steps if max_steps is not None else -1,
         # Real mixed precision, not "the weights happen to be fp16".
-        # fp16=True is what makes Trainer wrap the step in torch.autocast
-        # AND attach a GradScaler; without it, the backward pass runs
-        # unscaled in fp16 and small gradients underflow to zero with no
-        # warning. T4 has no usable bf16 (no bf16 tensor cores), so fp16 +
-        # GradScaler is the correct choice on this hardware, not bf16.
-        fp16=True,
-        per_device_train_batch_size=1,
+        # Exactly one of these is True, and it must match the dtype the
+        # model was loaded in (see torch_dtype_for). Setting neither is
+        # the 2026-07-19 bug: Trainer then attaches no GradScaler and no
+        # autocast, the backward pass runs unscaled in fp16, and small
+        # gradients underflow to zero with no warning -- training "works"
+        # (the loss is dominated by the frozen base) while the adapter
+        # barely moves.
+        #
+        # fp16 needs the GradScaler to survive that underflow; bf16 has
+        # fp32's exponent range and needs no scaler at all, which is why
+        # an Ampere/Ada pod is strictly the safer place to run this than
+        # a Turing T4. See resolve_precision.
+        fp16=(precision == "fp16"),
+        bf16=(precision == "bf16"),
+        # Effective batch = per_device_batch_size * gradient_accumulation_steps.
+        # Keep that product at 4 when changing these: it is the batch size
+        # every hyperparameter below (notably lr=1e-4) was reasoned about
+        # at, so changing the product changes the experiment, while
+        # trading one factor against the other is just a memory/speed
+        # tradeoff. batch=1/accum=4 fits a 15GB T4; batch=2/accum=2 is
+        # ~1.3x faster on a 24GB card and mathematically equivalent.
+        per_device_train_batch_size=per_device_batch_size,
         per_device_eval_batch_size=1,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=gradient_accumulation_steps,
         gradient_checkpointing=True,
         # PyTorch's default non-reentrant checkpoint mode strictly requires
         # the backward-pass recomputation to save the exact same number of
@@ -165,7 +217,14 @@ def build_training_args(output_dir: Path, max_steps: Optional[int] = None) -> Tr
     )
 
 
-def build_trainer(dataset_root: Path, output_dir: Path, max_steps: Optional[int] = None) -> Trainer:
+def build_trainer(
+    dataset_root: Path,
+    output_dir: Path,
+    max_steps: Optional[int] = None,
+    precision: Optional[str] = None,
+    per_device_batch_size: int = 1,
+    gradient_accumulation_steps: int = 4,
+) -> Trainer:
     """Wires the real model + LoRA adapter + our GroundingDataset/collate_fn
     into a HF Trainer. Not called by tests -- downloads the ~4GB base
     model and needs a GPU to run in reasonable time; this function exists
@@ -174,7 +233,11 @@ def build_trainer(dataset_root: Path, output_dir: Path, max_steps: Optional[int]
 
     `max_steps` hard-caps the run below the full 3-epoch schedule -- see
     build_training_args' docstring comment."""
-    model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, torch_dtype=torch.float16)
+    precision = precision or resolve_precision()
+    print(f"precision: {precision} (device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'})")
+    model = AutoModelForImageTextToText.from_pretrained(
+        MODEL_ID, torch_dtype=torch_dtype_for(precision)
+    )
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = get_peft_model(model, build_lora_config())
     # Must happen after get_peft_model (the adapters don't exist before it)
@@ -197,7 +260,13 @@ def build_trainer(dataset_root: Path, output_dir: Path, max_steps: Optional[int]
 
     return Trainer(
         model=model,
-        args=build_training_args(output_dir, max_steps=max_steps),
+        args=build_training_args(
+            output_dir,
+            max_steps=max_steps,
+            precision=precision,
+            per_device_batch_size=per_device_batch_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+        ),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=partial(collate_fn, pad_token_id=processor.tokenizer.pad_token_id),
