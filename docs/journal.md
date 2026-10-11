@@ -221,3 +221,23 @@ Three training runs were spent tuning hyperparameters against this.
 **Honest read on what this run can and cannot show, written before seeing the numbers**: UIA-only at 99.8% with 1,588/1,591 resolved is a ceiling by construction — `eval/uia_only.py`'s docstring already said so, and the export confirms it numerically. Hybrid defers to the grounder on 3 examples out of 1,591, so **hybrid will come out ≈ UIA-only and H2 will hold in a near-trivial way**. The load-bearing results of this run are H1 (fine-tuned vs zero-shot) and H3 (fine-tuned vs zero-shot on the four held-out apps). The write-up leads with those, and says plainly that H2's arm design measures "can text matching pick the right element from a list that definitely contains it", not "can UIA find click targets in the wild."
 
 **Next session**: rent the pod, run it, read H1/H3.
+
+---
+
+## 2026-10-11 — Back on Kaggle, with checkpoints that leave the machine
+
+**Context**: the 2026-08-30 plan was a rented pod; it never ran, and the project was parked 2026-09-13. Restarting on Kaggle's free T4s instead, which means facing the failure that killed five runs head-on rather than paying to avoid it.
+
+**Two problems in the chunked Kaggle notebook, found by reading it before running anything**:
+1. **The LR schedule was broken by design.** Each chunk set `max_steps = current_step + 400`. HF's linear schedule is built from `max_steps`, so chunk 1 would decay the learning rate to zero at step 400, and each later chunk would rebuild a different curve. No completed run ever exposed it because no run ever completed.
+2. **Checkpoints only survived a fully completed notebook.** `/kaggle/working` persists only when a commit finishes, so the 2026-08-30 guard cells reduced the risk without removing it.
+
+**Fix**: `training/hub_checkpoint.py`. Every Trainer save is pushed to a private Hugging Face repo as one atomic commit (`last-checkpoint/` for resume, `adapters/step-N/` snapshots every 100 steps, `run_state.json`); the next session pulls it back. Sessions keep the full 1179-step schedule and stop on a wall-clock budget (11 h, save every 30 min). A NaN guard stops a non-finite fp16 run without overwriting the last good checkpoint. `load_best_model_at_end` is off for this run: the best step will be chosen afterwards by dev click accuracy, because dev loss scores "137" and "927" as equally wrong for a target of "127". New notebook: `notebooks/phase3_train_kaggle.ipynb`, pinned to code commit `b525d0e`.
+
+**Proof before spending GPU time**: a tiny real model, trained straight through vs stopped at step 3 / pushed / pulled / resumed by a fresh Trainer, ends with identical LoRA weights (atol 1e-6) and the same LR at step 4, on transformers 5.0.0 (the pinned version) and 5.13.1. The notebook's own cells 7-10 were executed locally across two simulated sessions against a fake Hub. 201 tests pass.
+
+**Still unverified, and what checks it**: whether Kaggle exposes secrets inside a committed run, real T4 peak memory, and real s/step. Smoke commit 1 checks all three; smoke commit 2 checks resume on Kaggle itself. The token is checked in the first minute, so a failure costs nothing.
+
+**Also found today**: the local `.venv`'s editable install still pointed at the folder's old location (`Desktop/project computer use`); reinstalled. And 98 of 3163 labels (3%) carry sentence-like UIA names ("Switch to the There's no history yet. History tab"), found by rendering a screenshot's labels. Logged as known label noise, not fixed: the v3 upload is frozen.
+
+**Next session**: smoke ×2, then the real run.
