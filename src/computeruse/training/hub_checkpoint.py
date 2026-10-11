@@ -36,6 +36,7 @@ session (the chunked notebook before this one did exactly that).
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import math
 import time
@@ -130,6 +131,10 @@ class HubSync:
         ops.append(self._add(STATE_FILE, self._state_bytes(global_step, total_steps, finished=True)))
         self._commit(ops, f"final adapter at step {global_step}")
 
+    def push_files(self, files: dict[str, Any], message: str) -> None:
+        """Any set of files in one commit: {path_in_repo: local path or bytes}."""
+        self._commit([self._add(path, content) for path, content in files.items()], message)
+
     # -- pull --------------------------------------------------------------
 
     def read_state(self) -> Optional[dict]:
@@ -154,6 +159,14 @@ class HubSync:
         if not (path / "trainer_state.json").exists():
             raise RuntimeError(f"downloaded {LAST_CHECKPOINT} but {path}/trainer_state.json is missing")
         return path
+
+    def fetch(self, patterns: list[str], dest: Path) -> list[str]:
+        """Download every repo file matching any of `patterns` into dest,
+        keeping repo paths. Returns the repo paths fetched (none is fine)."""
+        wanted = [f for f in self._list_files() if any(fnmatch.fnmatch(f, p) for p in patterns)]
+        if wanted:
+            self._download(repo_id=self.repo_id, allow_patterns=wanted, local_dir=str(dest), token=self.token)
+        return wanted
 
     # -- internals ---------------------------------------------------------
 

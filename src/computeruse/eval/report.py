@@ -12,6 +12,7 @@ know which arm produced.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 
@@ -72,3 +73,61 @@ def build_report(records: list[EvalRecord]) -> dict:
         "by_arm_and_richness": by_arm_and_richness,
         "by_arm_and_split": by_arm_and_split,
     }
+
+
+def _percentile(sorted_values: list[float], q: float) -> float:
+    return sorted_values[min(len(sorted_values) - 1, max(0, round(q * (len(sorted_values) - 1))))]
+
+
+def bootstrap_ci(hits: list[bool], n_boot: int = 2000, seed: int = 0) -> tuple[float, float]:
+    """95% percentile-bootstrap interval for an accuracy. On a few hundred
+    examples per slice a point estimate alone overstates what is known --
+    the hypothesis doc flags exactly this as a threat to validity -- so
+    every reported accuracy carries one of these."""
+    if not hits:
+        return 0.0, 0.0
+    rng = random.Random(seed)
+    n = len(hits)
+    means = sorted(sum(rng.choices(hits, k=n)) / n for _ in range(n_boot))
+    return _percentile(means, 0.025), _percentile(means, 0.975)
+
+
+def paired_difference(
+    a: dict[str, bool], b: dict[str, bool], n_boot: int = 2000, seed: int = 0
+) -> dict:
+    """Accuracy of `a` minus accuracy of `b` on the same examples, with a
+    paired 95% bootstrap interval: each resample draws example ids and
+    scores both arms on them, so the interval reflects the difference
+    itself rather than two independent noisy accuracies. An interval that
+    excludes 0 is the evidence H1 and H3 ask for.
+
+    Raises ValueError if the two arms scored different examples -- a
+    difference over mismatched sets would not be a paired comparison."""
+    if a.keys() != b.keys():
+        raise ValueError(
+            f"arms scored different examples: {len(a.keys() - b.keys())} only in a, "
+            f"{len(b.keys() - a.keys())} only in b"
+        )
+    ids = sorted(a)
+    if not ids:
+        return {"n": 0, "a": 0.0, "b": 0.0, "diff": 0.0, "ci95": [0.0, 0.0]}
+    deltas = [int(a[i]) - int(b[i]) for i in ids]
+    rng = random.Random(seed)
+    n = len(ids)
+    boots = sorted(sum(rng.choices(deltas, k=n)) / n for _ in range(n_boot))
+    return {
+        "n": n,
+        "a": sum(a.values()) / n,
+        "b": sum(b.values()) / n,
+        "diff": sum(deltas) / n,
+        "ci95": [_percentile(boots, 0.025), _percentile(boots, 0.975)],
+    }
+
+
+def ci_by_arm_and_split(records: list[EvalRecord], n_boot: int = 2000) -> dict[str, dict[str, list[float]]]:
+    out: dict[str, dict[str, list[float]]] = {}
+    for arm in sorted({r.arm for r in records}):
+        for split in sorted({r.split for r in records if r.arm == arm}):
+            hits = [r.hit for r in records if r.arm == arm and r.split == split]
+            out.setdefault(arm, {})[split] = list(bootstrap_ci(hits, n_boot=n_boot))
+    return out

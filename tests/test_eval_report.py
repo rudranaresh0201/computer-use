@@ -1,5 +1,7 @@
 """Tests for the cross-arm result schema + 3-way slicing (eval/report.py)."""
 
+import pytest
+
 from computeruse.eval.report import EvalRecord, accuracy, build_report
 
 
@@ -56,3 +58,53 @@ def test_build_report_slices_by_split_within_arm():
     report = build_report(records)
     assert report["by_arm_and_split"]["uia_only"]["dev"] == 1.0
     assert report["by_arm_and_split"]["uia_only"]["test_held_out_app"] == 0.0
+
+
+# -- uncertainty: bootstrap intervals and paired differences --------------
+
+
+def test_bootstrap_ci_brackets_the_accuracy_and_narrows_with_more_data():
+    from computeruse.eval.report import bootstrap_ci
+
+    small = bootstrap_ci([True, False] * 20)
+    large = bootstrap_ci([True, False] * 500)
+    assert small[0] < 0.5 < small[1] and large[0] < 0.5 < large[1]
+    assert (large[1] - large[0]) < (small[1] - small[0])
+    assert bootstrap_ci([True] * 30) == (1.0, 1.0)
+    assert bootstrap_ci([]) == (0.0, 0.0)
+
+
+def test_bootstrap_ci_is_reproducible():
+    from computeruse.eval.report import bootstrap_ci
+
+    hits = [i % 3 == 0 for i in range(200)]
+    assert bootstrap_ci(hits) == bootstrap_ci(hits)
+
+
+def test_paired_difference_detects_a_consistent_gain():
+    from computeruse.eval.report import paired_difference
+
+    ids = [f"e{i}" for i in range(300)]
+    b = {i: n % 4 == 0 for n, i in enumerate(ids)}            # 25%
+    a = {i: b[i] or n % 4 == 1 for n, i in enumerate(ids)}    # 50%, never worse on any example
+    result = paired_difference(a, b)
+    assert result["n"] == 300 and result["a"] == 0.5 and result["b"] == 0.25
+    assert result["diff"] == 0.25
+    assert 0 < result["ci95"][0] <= 0.25 <= result["ci95"][1]
+
+
+def test_paired_difference_interval_includes_zero_when_arms_tie():
+    from computeruse.eval.report import paired_difference
+
+    ids = [f"e{i}" for i in range(200)]
+    a = {i: n % 2 == 0 for n, i in enumerate(ids)}
+    b = {i: n % 2 == 1 for n, i in enumerate(ids)}  # same accuracy, different examples
+    lo, hi = paired_difference(a, b)["ci95"]
+    assert lo < 0 < hi
+
+
+def test_paired_difference_refuses_mismatched_examples():
+    from computeruse.eval.report import paired_difference
+
+    with pytest.raises(ValueError, match="different examples"):
+        paired_difference({"a": True}, {"b": True})

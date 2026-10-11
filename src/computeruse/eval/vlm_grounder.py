@@ -29,8 +29,10 @@ Functions here split into two groups, same as train_lora.py's own split:
 
 from __future__ import annotations
 
+import copy
 import re
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -53,17 +55,49 @@ MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
 # clean, especially zero-shot, so this deliberately doesn't anchor to the
 # whole string.
 _POINT_RE = re.compile(r"\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)")
+# A second pair directly after the first: "(x1,y1),(x2,y2)" is a box.
+_BOX_TAIL_RE = re.compile(r"\s*,?\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)")
+
+# Room for Qwen2-VL's native grounding answer, which can name the object
+# before the box ("<|object_ref_start|>Save<|object_ref_end|><|box_start|>
+# (x1,y1),(x2,y2)<|box_end|>"). 16 tokens could cut that off mid-box. A
+# fine-tuned answer ends at ~10 tokens with EOS, so this costs it nothing.
+MAX_NEW_TOKENS = 48
+
+
+def _parse(text: str) -> tuple[Optional[tuple[int, int]], str]:
+    match = _POINT_RE.search(text)
+    if match is None:
+        return None, "none"
+    x, y = int(match.group(1)), int(match.group(2))
+    tail = _BOX_TAIL_RE.match(text, match.end())
+    if tail is None:
+        return (x, y), "point"
+    x2, y2 = int(tail.group(1)), int(tail.group(2))
+    return ((x + x2) // 2, (y + y2) // 2), "box"
 
 
 def parse_point(text: str) -> Optional[tuple[int, int]]:
     """Extract the first "(x,y)" pair from generated text. Returns None if
     none is found -- a real, expected outcome for a zero-shot model that
     hasn't learned to reliably follow the requested output format, and
-    must be scored as a miss, not an error."""
-    match = _POINT_RE.search(text)
-    if match is None:
-        return None
-    return int(match.group(1)), int(match.group(2))
+    must be scored as a miss, not an error.
+
+    A box -- "(x1,y1),(x2,y2)", the format Qwen2-VL was pretrained to ground
+    in, with its <|box_start|> tokens stripped by decoding -- is scored at
+    its center, as SeeClick-style evals score box-predicting models. Reading
+    its first pair instead would score the zero-shot arm by the box's
+    top-left corner: a miss on most small targets, for a reason that has
+    nothing to do with whether it found the element (decided 2026-10-11,
+    before any zero-shot or fine-tuned number on v3 was seen)."""
+    return _parse(text)[0]
+
+
+def answer_format(text: str) -> str:
+    """"point", "box", or "none" -- which shape the model answered in. A
+    diagnostic for the zero-shot arm: it shows whether the base model
+    followed the (x,y) instruction or fell back to its pretraining format."""
+    return _parse(text)[1]
 
 
 def normalize_bbox(
@@ -160,9 +194,61 @@ def predict(model, processor, tokenizer, image, instruction_example: TrainingExa
         prompt_only, tokenize=False, add_generation_prompt=True
     )
     inputs = processor(text=[prompt_text], images=[image], return_tensors="pt").to(model.device)
-    generated = model.generate(**inputs, max_new_tokens=16)
+    generated = model.generate(**inputs, generation_config=greedy_config(model))
     return tokenizer.decode(
         generated[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
+    )
+
+
+def greedy_config(model):
+    """Greedy decoding, stated rather than inherited. Qwen2-VL-Instruct's
+    shipped generation_config samples (do_sample=True with top_k=1, which
+    is greedy in effect); making it explicit means a re-scored example
+    gives the same answer, which is what lets an interrupted eval resume
+    instead of starting over (eval/resumable.py)."""
+    config = copy.deepcopy(model.generation_config)
+    config.do_sample = False
+    config.temperature = config.top_p = config.top_k = None
+    config.max_new_tokens = MAX_NEW_TOKENS
+    if config.pad_token_id is None and config.eos_token_id is not None:
+        # otherwise generate() logs "Setting pad_token_id..." on every call
+        eos = config.eos_token_id
+        config.pad_token_id = eos[0] if isinstance(eos, list) else eos
+    return config
+
+
+def score_example(
+    model,
+    processor,
+    tokenizer,
+    example: TrainingExample,
+    label_row: dict[str, Any],
+    dataset_root: Path,
+) -> ArmResult:
+    """One example: predict, parse, score. `label_row` is the original
+    labels.jsonl row (needed for bbox_real/real_size/scale_x/scale_y, which
+    TrainingExample itself doesn't carry -- see
+    prepare_dataset.TrainingExample's field list)."""
+    from PIL import Image
+
+    image = Image.open(resolve_path(dataset_root, example.image_path)).convert("RGB")
+    raw_text = predict(model, processor, tokenizer, image, example)
+    point = parse_point(raw_text)
+    bbox_norm = normalize_bbox(
+        tuple(label_row["element"]["bbox_real"]),
+        tuple(label_row["real_size"]),
+        label_row["scale_x"],
+        label_row["scale_y"],
+    )
+    return ArmResult(
+        example_id=example.id,
+        app=example.app,
+        split=example.split,
+        predicted_text=raw_text,
+        predicted_point=point,
+        ground_truth_bbox_norm=bbox_norm,
+        hit=is_hit_normalized(point, bbox_norm),
+        center_distance=center_distance_normalized(point, bbox_norm),
     )
 
 
@@ -174,41 +260,65 @@ def evaluate_arm(
     labels_by_id: dict[str, dict[str, Any]],
     dataset_root: Path,
 ) -> list[ArmResult]:
-    """Run every example through `predict`, parse, and score. `labels_by_id`
-    maps TrainingExample.id -> the original labels.jsonl row (needed for
-    bbox_real/real_size/scale_x/scale_y, which TrainingExample itself
-    doesn't carry -- see prepare_dataset.TrainingExample's field list).
-    GPU-only, not covered by the local test suite for the same reason
-    train_lora.build_trainer isn't."""
-    from PIL import Image
+    """Run every example through `score_example`. `labels_by_id` maps
+    TrainingExample.id -> its labels.jsonl row. GPU-only, not covered by the
+    local test suite for the same reason train_lora.build_trainer isn't."""
+    return [
+        score_example(model, processor, tokenizer, e, labels_by_id[e.id], dataset_root)
+        for e in examples
+    ]
 
-    results: list[ArmResult] = []
-    for example in examples:
-        label_row = labels_by_id[example.id]
-        image_path = resolve_path(dataset_root, example.image_path)
-        image = Image.open(image_path).convert("RGB")
 
-        raw_text = predict(model, processor, tokenizer, image, example)
-        point = parse_point(raw_text)
-        bbox_norm = normalize_bbox(
-            tuple(label_row["element"]["bbox_real"]),
-            tuple(label_row["real_size"]),
-            label_row["scale_x"],
-            label_row["scale_y"],
-        )
-        results.append(
-            ArmResult(
-                example_id=example.id,
-                app=example.app,
-                split=example.split,
-                predicted_text=raw_text,
-                predicted_point=point,
-                ground_truth_bbox_norm=bbox_norm,
-                hit=is_hit_normalized(point, bbox_norm),
-                center_distance=center_distance_normalized(point, bbox_norm),
-            )
-        )
-    return results
+ZERO_SHOT = "zero_shot"
+
+
+def load_adapters(base, adapter_dirs: dict[str, Path]):
+    """Every adapter onto one copy of the base model, each under its arm
+    name ("step-00700", "final"), so switching arms costs no reload.
+
+    PEFT injects the LoRA layers into `base` in place: after this call,
+    `base(...)` runs the active adapter too. The untouched base model is
+    only reachable as `arm_active(model, ZERO_SHOT)` -- checked on a tiny
+    Qwen2-VL to give bit-identical logits to the base before loading."""
+    from peft import PeftModel
+
+    names = list(adapter_dirs)
+    model = PeftModel.from_pretrained(base, str(adapter_dirs[names[0]]), adapter_name=names[0])
+    for name in names[1:]:
+        model.load_adapter(str(adapter_dirs[name]), adapter_name=name)
+    model.eval()
+    return model
+
+
+@contextmanager
+def arm_active(model, arm: str):
+    """Run the block as one arm: "zero_shot" turns every adapter off, which
+    is exactly the base model (H1's control); any other name runs that
+    adapter alone."""
+    if arm == ZERO_SHOT:
+        with model.disable_adapter():
+            yield
+    else:
+        model.set_adapter(arm)
+        yield
+
+
+def result_to_json(result: ArmResult) -> dict[str, Any]:
+    return asdict(result)
+
+
+def result_from_json(row: dict[str, Any]) -> ArmResult:
+    """Inverse of result_to_json. JSON has no tuples, so the two
+    coordinate fields come back as lists and are turned back here --
+    otherwise a reloaded result would compare unequal to the original."""
+    point = row["predicted_point"]
+    return ArmResult(
+        **{
+            **row,
+            "predicted_point": tuple(point) if point is not None else None,
+            "ground_truth_bbox_norm": tuple(row["ground_truth_bbox_norm"]),
+        }
+    )
 
 
 def to_eval_records(
@@ -279,3 +389,11 @@ def summarize_diagnostics(results: list[ArmResult]) -> dict[str, float]:
         "median_center_distance": median,
         "mean_center_distance": sum(distances) / len(distances),
     }
+
+
+def format_counts(results: list[ArmResult]) -> dict[str, int]:
+    """How many answers came back as a point, a box, or nothing parseable."""
+    counts = {"point": 0, "box": 0, "none": 0}
+    for r in results:
+        counts[answer_format(r.predicted_text)] += 1
+    return counts

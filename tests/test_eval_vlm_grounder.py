@@ -8,11 +8,17 @@ Kaggle notebook, not here, same split as train_lora.py's own test coverage.
 import pytest
 
 from computeruse.eval.vlm_grounder import (
+    MAX_NEW_TOKENS,
     ArmResult,
+    answer_format,
     center_distance_normalized,
+    format_counts,
+    greedy_config,
     is_hit_normalized,
     normalize_bbox,
     parse_point,
+    result_from_json,
+    result_to_json,
     summarize_diagnostics,
     to_eval_records,
 )
@@ -161,3 +167,52 @@ def test_model_id_matches_the_trained_base_model():
     from computeruse.training.train_lora import MODEL_ID as TRAIN_MODEL_ID
 
     assert EVAL_MODEL_ID == TRAIN_MODEL_ID
+
+
+# -- answers in Qwen2-VL's native box format (decided 2026-10-11, before any v3 score) --
+
+
+def test_a_box_answer_is_scored_at_its_center_not_its_top_left_corner():
+    # What "<|box_start|>(100,200),(140,260)<|box_end|>" decodes to with special tokens skipped.
+    assert parse_point("(100,200),(140,260)") == (120, 230)
+
+
+def test_a_box_after_an_object_name_still_parses():
+    assert parse_point("Save button(100, 200), (140, 260)") == (120, 230)
+
+
+def test_two_separate_points_are_not_mistaken_for_a_box():
+    assert parse_point("(1,2) and also (3,4)") == (1, 2)
+
+
+def test_answer_format_tells_point_box_and_nothing_apart():
+    assert answer_format("(423,551)") == "point"
+    assert answer_format("(100,200),(140,260)") == "box"
+    assert answer_format("no idea") == "none"
+
+
+def test_format_counts_tallies_every_result():
+    texts = ["(1,2)", "(1,2),(3,4)", "(5,6)", "nothing"]
+    results = [
+        ArmResult("x", "notepad", "dev", t, parse_point(t), (0, 0, 10, 10), False) for t in texts
+    ]
+    assert format_counts(results) == {"point": 2, "box": 1, "none": 1}
+
+
+def test_a_result_survives_a_json_round_trip_unchanged():
+    import json
+
+    for point in [(5, 6), None]:
+        original = ArmResult("x", "notepad", "dev", "(5,6)", point, (0, 0, 10, 10), True, 1.5)
+        assert result_from_json(json.loads(json.dumps(result_to_json(original)))) == original
+
+
+def test_generation_is_greedy_and_leaves_room_for_a_box():
+    from types import SimpleNamespace
+
+    from transformers import GenerationConfig
+
+    shipped = GenerationConfig(do_sample=True, top_k=1, top_p=0.001, temperature=0.01)
+    config = greedy_config(SimpleNamespace(generation_config=shipped))
+    assert config.do_sample is False and config.max_new_tokens == MAX_NEW_TOKENS >= 40
+    assert shipped.do_sample is True  # the model's own config is not mutated

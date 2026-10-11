@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -34,6 +33,7 @@ from transformers import AutoModelForImageTextToText, AutoProcessor
 
 from computeruse.dataset.registry import load_registry
 from computeruse.eval import hybrid
+from computeruse.eval.ablation import EVAL_SPLITS, UiaRow, load_uia_results
 from computeruse.eval.report import EvalRecord, build_report
 from computeruse.eval.vlm_grounder import (
     MODEL_ID,
@@ -42,42 +42,10 @@ from computeruse.eval.vlm_grounder import (
     to_eval_records,
 )
 from computeruse.training.dataset import resolve_path
-from computeruse.training.prepare_dataset import SPLITS, TrainingExample
+from computeruse.training.prepare_dataset import TrainingExample
 from computeruse.training.train_lora import resolve_precision, torch_dtype_for
 
-EVAL_SPLITS = tuple(s for s in SPLITS if s != "train")
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-@dataclass
-class UiaRow:
-    """Local mirror of eval.uia_only.UiaArmResult, rebuilt from the JSON
-    scripts/export_uia_arm.py writes on Windows.
-
-    Not imported from uia_only on purpose: that module reaches
-    dataset.collector -> perception.uia -> pywinauto, which cannot import
-    on Linux. hybrid.combine only reads attributes, so a structurally
-    identical object is all it needs.
-    """
-
-    example_id: str
-    app: str
-    app_richness: str
-    split: str
-    available: bool
-    hit: bool
-
-
-def load_uia_results(path: Path) -> list[UiaRow]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if tuple(payload["splits"]) != EVAL_SPLITS:
-        raise SystemExit(
-            f"{path} was exported over splits {payload['splits']}, but this run "
-            f"scores {list(EVAL_SPLITS)}. Re-export before joining -- hybrid "
-            "requires both sides to cover the same examples."
-        )
-    return [UiaRow(**row) for row in payload["results"]]
 
 
 def resolve_apps_yaml(dataset_root: Path) -> Path:
