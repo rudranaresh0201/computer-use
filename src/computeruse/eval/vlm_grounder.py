@@ -57,6 +57,12 @@ MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
 _POINT_RE = re.compile(r"\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)")
 # A second pair directly after the first: "(x1,y1),(x2,y2)" is a box.
 _BOX_TAIL_RE = re.compile(r"\s*,?\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)")
+# Four numbers in one bracket, "(x1, y1, x2, y2)" or "[x1, y1, x2, y2]": also a
+# box. The Kaggle smoke run (2026-10-12, 4 dev examples, no test example
+# scored) showed the zero-shot model answering this way 3 times out of 4.
+_BOX4_RE = re.compile(
+    r"[\(\[]\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*[\)\]]"
+)
 
 # Room for Qwen2-VL's native grounding answer, which can name the object
 # before the box ("<|object_ref_start|>Save<|object_ref_end|><|box_start|>
@@ -67,6 +73,10 @@ MAX_NEW_TOKENS = 48
 
 def _parse(text: str) -> tuple[Optional[tuple[int, int]], str]:
     match = _POINT_RE.search(text)
+    box4 = _BOX4_RE.search(text)
+    if box4 is not None and (match is None or box4.start() < match.start()):
+        x1, y1, x2, y2 = (int(g) for g in box4.groups())
+        return ((x1 + x2) // 2, (y1 + y2) // 2), "box"
     if match is None:
         return None, "none"
     x, y = int(match.group(1)), int(match.group(2))
@@ -84,8 +94,9 @@ def parse_point(text: str) -> Optional[tuple[int, int]]:
     must be scored as a miss, not an error.
 
     A box -- "(x1,y1),(x2,y2)", the format Qwen2-VL was pretrained to ground
-    in, with its <|box_start|> tokens stripped by decoding -- is scored at
-    its center, as SeeClick-style evals score box-predicting models. Reading
+    in, with its <|box_start|> tokens stripped by decoding, or the
+    "(x1, y1, x2, y2)" the zero-shot model actually wrote on Kaggle -- is
+    scored at its center, as SeeClick-style evals score box-predicting models. Reading
     its first pair instead would score the zero-shot arm by the box's
     top-left corner: a miss on most small targets, for a reason that has
     nothing to do with whether it found the element (decided 2026-10-11,

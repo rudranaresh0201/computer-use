@@ -216,3 +216,27 @@ def test_generation_is_greedy_and_leaves_room_for_a_box():
     config = greedy_config(SimpleNamespace(generation_config=shipped))
     assert config.do_sample is False and config.max_new_tokens == MAX_NEW_TOKENS >= 40
     assert shipped.do_sample is True  # the model's own config is not mutated
+
+
+# The four zero-shot answers from the Kaggle smoke run (2026-10-12), verbatim.
+@pytest.mark.parametrize(
+    ("text", "expected", "kind"),
+    [
+        ("(300, 550)", (300, 550), "point"),
+        ("(333, 333, 400, 399)", (366, 366), "box"),
+        ("(779,207,841,250)", (810, 228), "box"),
+        ("(450, 100, 550, 110)", (500, 105), "box"),
+    ],
+)
+def test_the_zero_shot_answers_seen_on_kaggle_parse(text, expected, kind):
+    assert parse_point(text) == expected
+    assert answer_format(text) == kind
+
+
+def test_a_square_bracket_box_parses_too():
+    assert parse_point("[779, 207, 841, 250]") == (810, 228)
+
+
+def test_the_first_answer_wins_whichever_shape_it_has():
+    assert parse_point("(10,20) or maybe (1,2,3,4)") == (10, 20)
+    assert parse_point("(0,0,10,10) or maybe (500,500)") == (5, 5)
