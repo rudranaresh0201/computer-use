@@ -218,6 +218,10 @@ class HubCheckpointCallback(TrainerCallback):
         self.last_pushed_step: Optional[int] = None
         self._log = log
 
+    def on_train_begin(self, args, state, control, **kwargs):
+        self.consecutive_failures = 0
+        return control
+
     def on_save(self, args, state, control, **kwargs):
         if not state.is_world_process_zero:
             return control
@@ -288,6 +292,10 @@ class WallClockCallback(TrainerCallback):
         self._first_step: Optional[int] = None
 
     def on_train_begin(self, args, state, control, **kwargs):
+        # Per-run state starts clean: a callback object can outlive one
+        # train() call (a notebook cell run twice), and a stop reason left
+        # over from the last run would end this one after its first step.
+        self.stop_reason = None
         now = self._clock()
         self._last_save = now
         self._train_start = now
@@ -341,6 +349,11 @@ class NanGuardCallback(TrainerCallback):
         self.bad_logs = 0
         self.tripped = False
         self._log = log
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        self.bad_logs = 0
+        self.tripped = False
+        return control
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         loss = (logs or {}).get("loss")

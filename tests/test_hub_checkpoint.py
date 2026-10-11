@@ -348,3 +348,31 @@ def test_interrupted_and_resumed_run_matches_an_uninterrupted_one(tmp_path):
 def test_wall_clock_refuses_a_nonsense_session_start():
     with pytest.raises(ValueError, match="session_start"):
         WallClockCallback(session_start=0, budget_seconds=3600, save_every_seconds=600)
+
+
+def test_a_second_train_call_does_not_inherit_the_previous_stop():
+    # 2026-10-11, live on Kaggle: cell 9 was run twice in one session. The
+    # reused WallClockCallback still held "smoke stop at step 3" from the
+    # first run and ended the second one right after step 1.
+    clock = Clock(100)
+    cb = WallClockCallback(session_start=0, budget_seconds=10**6, save_every_seconds=10**6,
+                           stop_after_step=3, clock=clock, log=lambda m: None)
+    cb.on_train_begin(None, state(0), TrainerControl())
+    assert cb.on_step_end(None, state(3), TrainerControl()).should_training_stop
+
+    cb.stop_after_step = None
+    cb.on_train_begin(None, state(0), TrainerControl())
+    assert not cb.on_step_end(None, state(1), TrainerControl()).should_training_stop
+
+
+def test_nan_guard_and_hub_callback_start_each_run_clean(tmp_path):
+    nan = NanGuardCallback(patience=1, log=lambda m: None)
+    nan.on_log(None, state(1), TrainerControl(), logs={"loss": float("nan")})
+    assert nan.tripped
+    nan.on_train_begin(None, state(0), TrainerControl())
+    assert not nan.tripped and nan.bad_logs == 0
+
+    hub = HubCheckpointCallback(make_sync(FakeHub(tmp_path / "hub")), log=lambda m: None)
+    hub.consecutive_failures = 2
+    hub.on_train_begin(None, state(0), TrainerControl())
+    assert hub.consecutive_failures == 0
