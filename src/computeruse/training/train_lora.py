@@ -109,6 +109,9 @@ def build_training_args(
     precision: Optional[str] = None,
     per_device_batch_size: int = 1,
     gradient_accumulation_steps: int = 4,
+    save_steps: int = 100,
+    eval_steps: int = 100,
+    load_best_model_at_end: bool = True,
 ) -> TrainingArguments:
     precision = precision or resolve_precision()
     return TrainingArguments(
@@ -198,16 +201,22 @@ def build_training_args(
         # points to be a subset of eval points, so eval must move to the
         # same cadence -- these are loss-only forward passes, not
         # generation, so the added eval cost is small relative to training.
+        #
+        # The multi-session Kaggle run (notebooks/phase3_train_kaggle.ipynb)
+        # passes load_best_model_at_end=False: it keeps adapter snapshots on
+        # the Hub and picks the best step afterwards by dev *click accuracy*,
+        # the metric the hypotheses are actually about. Dev loss scores
+        # "137" and "927" as equally wrong when the target is "127".
         eval_strategy="steps",
-        eval_steps=100,
+        eval_steps=eval_steps,
         save_strategy="steps",
-        save_steps=100,
+        save_steps=save_steps,
         # Without this, a 3-epoch run keeps epoch 3 even if epoch 2 had the
         # better dev loss -- i.e. it silently reports the overfit checkpoint
         # on a 252-example dataset, where overfitting by epoch 3 is likely.
         # Selecting on dev (never on either test split) is exactly what the
         # hypothesis doc permits.
-        load_best_model_at_end=True,
+        load_best_model_at_end=load_best_model_at_end,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
         save_total_limit=2,
@@ -224,6 +233,11 @@ def build_trainer(
     precision: Optional[str] = None,
     per_device_batch_size: int = 1,
     gradient_accumulation_steps: int = 4,
+    save_steps: int = 100,
+    eval_steps: int = 100,
+    load_best_model_at_end: bool = True,
+    eval_subset_size: Optional[int] = None,
+    callbacks: Optional[list] = None,
 ) -> Trainer:
     """Wires the real model + LoRA adapter + our GroundingDataset/collate_fn
     into a HF Trainer. Not called by tests -- downloads the ~4GB base
@@ -257,6 +271,8 @@ def build_trainer(
     eval_dataset = GroundingDataset(
         resolve_path(dataset_root, "splits/dev.jsonl"), dataset_root, processor, processor.tokenizer
     )
+    if eval_subset_size is not None and eval_subset_size < len(eval_dataset):
+        eval_dataset = dev_subset(eval_dataset, eval_subset_size)
 
     return Trainer(
         model=model,
@@ -266,11 +282,29 @@ def build_trainer(
             precision=precision,
             per_device_batch_size=per_device_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
+            save_steps=save_steps,
+            eval_steps=eval_steps,
+            load_best_model_at_end=load_best_model_at_end,
         ),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=partial(collate_fn, pad_token_id=processor.tokenizer.pad_token_id),
+        callbacks=callbacks,
     )
+
+
+def dev_subset(dataset, size: int, seed: int = 0):
+    """A fixed, seeded subset of dev for the periodic loss check. Full dev
+    (555 examples) every 100 steps is ~12 passes over the whole split in a
+    run; the loss curve only needs a consistent sample, and the real
+    selection metric (click accuracy) is computed on full dev afterwards.
+    Same indices every session, so the curve is comparable across resumes."""
+    import random
+
+    from torch.utils.data import Subset
+
+    indices = sorted(random.Random(seed).sample(range(len(dataset)), size))
+    return Subset(dataset, indices)
 
 
 def find_last_checkpoint(output_dir: Path) -> Optional[str]:
