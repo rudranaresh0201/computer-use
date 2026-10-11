@@ -65,8 +65,14 @@ def resolve_precision() -> str:
     Kaggle's T4 and on a rented Ada/Ampere pod -- the failure mode this
     avoids is a "bf16 everywhere" constant silently falling back to
     emulated bf16 on Turing and running several times slower.
+
+    Checks the hardware generation directly, not `is_bf16_supported()`:
+    since torch added `including_emulation=True` as that function's
+    default, it answers True on a T4 too (it can *create* a bf16 tensor,
+    just not multiply one on tensor cores). That picked bf16 on Kaggle's
+    T4 on 2026-10-11 -- exactly the failure this function exists to avoid.
     """
-    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+    if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8:
         return "bf16"
     return "fp16"
 
@@ -101,6 +107,40 @@ def cast_trainable_params_to_fp32(model):
         if param.requires_grad:
             param.data = param.data.to(torch.float32)
     return model
+
+
+def keep_vision_tower_out_of_backward(model) -> None:
+    """Run the frozen vision tower without autograd.
+
+    Reentrant gradient checkpointing needs the input embeddings to require
+    grad, so `gradient_checkpointing_enable()` (called by the Trainer) and
+    PEFT both call `enable_input_require_grads()`. In transformers 5.0.0 that
+    hooks the input embeddings of EVERY sub-model -- for Qwen2-VL including
+    `visual`'s PatchEmbed -- which pulls the whole frozen 32-layer vision
+    tower into every backward pass: a recomputed forward plus a backward
+    through attention over ~7168 patches, for parameters that have no LoRA
+    and never update. On Kaggle (2026-10-11) that backward OOM'd the T4 on
+    step 1 asking for one layer's full attention matrix (3.06 GiB), and it
+    is the likely reason earlier runs crawled at ~57 s/step.
+
+    Removing our own enable_input_require_grads() call is not enough -- the
+    library adds the hook again. Wrapping the vision forward in no_grad
+    states the intent regardless of who hooks what: image features enter
+    the language model as constants, and every LoRA layer (language model
+    only, see lora_config) still gets its gradient through the text side.
+    """
+    visual = next(
+        (m for name, m in model.named_modules() if name == "visual" or name.endswith(".visual")), None
+    )
+    if visual is None:
+        raise ValueError("no vision tower named 'visual' found -- this is written for Qwen2-VL")
+    original_forward = visual.forward
+
+    def forward_without_autograd(*args, **kwargs):
+        with torch.no_grad():
+            return original_forward(*args, **kwargs)
+
+    visual.forward = forward_without_autograd
 
 
 def build_training_args(
@@ -250,7 +290,13 @@ def build_trainer(
     precision = precision or resolve_precision()
     print(f"precision: {precision} (device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'})")
     model = AutoModelForImageTextToText.from_pretrained(
-        MODEL_ID, torch_dtype=torch_dtype_for(precision)
+        MODEL_ID,
+        dtype=torch_dtype_for(precision),
+        # Explicit, not inherited from whatever the installed version
+        # defaults to: SDPA's memory-efficient kernel never materializes the
+        # full attention matrix -- one vision layer's would be
+        # 7168^2 x 16 heads x 4 bytes = 3.06 GiB (the 2026-10-11 OOM).
+        attn_implementation="sdpa",
     )
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = get_peft_model(model, build_lora_config())
@@ -264,6 +310,7 @@ def build_trainer(
     # frozen (only the tiny LoRA adapters are trainable), nothing upstream
     # of the input embeddings satisfies that by default.
     model.enable_input_require_grads()
+    keep_vision_tower_out_of_backward(model)
 
     train_dataset = GroundingDataset(
         resolve_path(dataset_root, "splits/train.jsonl"), dataset_root, processor, processor.tokenizer

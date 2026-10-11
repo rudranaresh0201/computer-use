@@ -198,3 +198,27 @@ def test_training_args_max_steps_override_hard_caps_the_run():
     # taking precedence over num_train_epochs.
     args = build_training_args(Path("runs/test"), max_steps=700)
     assert args.max_steps == 700
+
+
+@pytest.mark.parametrize(
+    ("device", "capability", "expected"),
+    [("Tesla T4", (7, 5), "fp16"), ("Tesla P100", (6, 0), "fp16"), ("A100", (8, 0), "bf16"), ("L4", (8, 9), "bf16")],
+)
+def test_resolve_precision_goes_by_hardware_generation_not_emulation(monkeypatch, device, capability, expected):
+    # 2026-10-11, live on Kaggle: torch.cuda.is_bf16_supported() defaults to
+    # including_emulation=True and answered True on a T4, so the run came up
+    # "precision: bf16 (device: Tesla T4)" -- emulated bf16, no tensor cores.
+    # Simulate exactly that lie and check it is not believed.
+    from computeruse.training import train_lora
+
+    monkeypatch.setattr(train_lora.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(train_lora.torch.cuda, "is_bf16_supported", lambda including_emulation=True: True)
+    monkeypatch.setattr(train_lora.torch.cuda, "get_device_capability", lambda idx=0: capability)
+    assert train_lora.resolve_precision() == expected, device
+
+
+def test_resolve_precision_without_a_gpu_is_fp16(monkeypatch):
+    from computeruse.training import train_lora
+
+    monkeypatch.setattr(train_lora.torch.cuda, "is_available", lambda: False)
+    assert train_lora.resolve_precision() == "fp16"
