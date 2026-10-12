@@ -104,9 +104,25 @@ def main() -> None:
     web_parser.add_argument("url", nargs="?", default=None, help="Page to open first")
     web_parser.add_argument("--headless", action="store_true", help="Run Chrome without a window")
 
+    web_run_parser = subparsers.add_parser(
+        "web-run", help="The agent does a web task on its own in Chrome (brain: Groq, free tier)"
+    )
+    web_run_parser.add_argument("goal", help='e.g. "When was Alan Turing born? Use Wikipedia."')
+    web_run_parser.add_argument("--start", default=None, help="Page to open first, e.g. en.wikipedia.org")
+    web_run_parser.add_argument("--model", default=None, help="Groq model id (default: openai/gpt-oss-120b)")
+    web_run_parser.add_argument("--max-steps", type=int, default=15)
+    web_run_parser.add_argument("--headless", action="store_true", help="No Chrome window")
+    web_run_parser.add_argument("--no-video", action="store_true", help="Don't record runs/videos/*.webm")
+
     args = parser.parse_args()
 
-    if args.command == "web":
+    if args.command == "web-run":
+        from .web.run import DEFAULT_MODEL
+        from .web.run import main as web_run_main
+
+        sys.exit(web_run_main(args.goal, args.start, args.model or DEFAULT_MODEL, args.max_steps,
+                              args.headless, record=not args.no_video))
+    elif args.command == "web":
         from .web.shell import main as web_main
 
         web_main(args.url, headless=args.headless)

@@ -120,10 +120,19 @@ class Browser:
             web.type(view_ref, "Alan Turing", submit=True)
     """
 
-    def __init__(self, headless: bool = False, channel: str = "chrome", viewport: tuple[int, int] = (1280, 800)):
+    def __init__(
+        self,
+        headless: bool = False,
+        channel: str = "chrome",
+        viewport: tuple[int, int] = (1280, 800),
+        record_video_dir: Optional[str] = None,
+    ):
         self._headless = headless
         self._channel = channel
         self._viewport = viewport
+        # Playwright records every page to a .webm here; the file is complete
+        # once the browser closes -- a demo video for free.
+        self._record_video_dir = record_video_dir
         self._playwright = None
         self._browser = None
         self.page = None
@@ -133,7 +142,11 @@ class Browser:
 
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(channel=self._channel, headless=self._headless)
-        context = self._browser.new_context(viewport={"width": self._viewport[0], "height": self._viewport[1]})
+        options: dict = {"viewport": {"width": self._viewport[0], "height": self._viewport[1]}}
+        if self._record_video_dir:
+            options["record_video_dir"] = self._record_video_dir
+            options["record_video_size"] = options["viewport"]
+        context = self._browser.new_context(**options)
         self.page = context.new_page()
         return self
 
@@ -148,6 +161,16 @@ class Browser:
     def observe(self, boxes: bool = True) -> PageView:
         snapshot = self.page.locator("body").aria_snapshot(mode="ai", boxes=boxes)
         return PageView(url=self.page.url, title=self.page.title(), snapshot=snapshot, elements=parse_snapshot(snapshot))
+
+    def viewport_rect(self) -> tuple[int, int, int, int]:
+        """What is on screen right now, in the page coordinates the boxes
+        use (they don't move when the page scrolls): x, y, width, height."""
+        x, y, w, h = self.page.evaluate("[scrollX, scrollY, innerWidth, innerHeight]")
+        return int(x), int(y), int(w), int(h)
+
+    def video_path(self) -> Optional[str]:
+        video = self.page.video if self.page is not None else None
+        return video.path() if video is not None else None
 
     def screenshot(self) -> bytes:
         return self.page.screenshot()
