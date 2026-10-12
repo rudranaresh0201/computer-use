@@ -347,3 +347,19 @@ Not yet allowed: tuning the snap rule on these test numbers. Any new rule (e.g. 
 | target nameless / absent | −0.8 [−2.0, 0.0] | −1.1 [−1.9, −0.4] |
 
 So on real screens: when the tree has the target, the guarded hybrid recovers most of the tree's advantage; when it doesn't, it costs about one point against vision alone -- where naive tree-first cost 9.5 and radius snap 21.6. Its intact score on unseen apps (77.8) is still below the tree alone (92.8): exact-name agreement declines many correct tree matches, so a better-calibrated guard is the obvious next step (designed on dev again).
+
+## 2026-10-12 (night) — The strong tree baseline: an LLM reading the tree
+
+`eval/tree_llm.py` (frozen `938f46a`): gpt-oss-120b on Groq reads the accessibility tree as text and answers one ref or NONE. Test subset fixed in advance: the first 50 test pages (seeds 1000-1049), 250 items, 50 per condition; 138,838 tokens.
+
+| condition | tree: name matching | tree: LLM | LLM said NONE |
+|---|---|---|---|
+| C1 named | 100% | 88% [78, 96] | 2/50 |
+| C2 unnamed icon | 0% | 2% [0, 6] | 35/50 |
+| C3 reworded | 0% | **88% [78, 96]** | 5/50 |
+| C4 canvas | 0% | 0% | 50/50 |
+| C5 ambiguous | 32% [20, 46] | **100%** | 0/50 |
+
+Read: an LLM removes the tree's wording and ambiguity problems (C3, C5) but not its blindness: unnamed icons and canvas targets stay at ~0 even for the strongest tree method -- the cases vision exists for. Its C1 misses are slips, not blindness: one-word instructions answered with a wrong ref ("Translate" -> Sort, "Report" -> Print) or NONE.
+
+**Pre-registered now, before the grounder's answers on these items exist:** `llm_guarded` = the LLM's pick when it names an element, else the grounder's point -- the LLM's NONE as the signal that the tree doesn't have the target. Expectation: close to the tree on C3/C5, close to vision on C2/C4. Scored on the same 250 items once `compare-v1/results/step-01179.jsonl` arrives from the Kaggle run.
