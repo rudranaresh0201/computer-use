@@ -166,3 +166,46 @@ long as: the dataset was built with the held-out app split intact, all four arms
 were run on identical held-out data, all three slices were reported, and the result
 (whichever it is) matches one of the outcomes anticipated above rather than
 requiring post-hoc reinterpretation to explain.
+
+## H4-H6 -- tree vs vision vs both, on equal terms (added 2026-10-12, before any result)
+
+The v3 ablation could not compare UIA with the grounder fairly: UIA chose the
+targets (only elements it could see were labeled) and wrote the instructions
+(from its own names), so UIA-only scored ~100% by construction. This test
+removes both advantages.
+
+**Test set.** Generated app-like pages (`src/computeruse/sandbox/`), rendered in
+Chrome at the training resolution (1568x882). True boxes come from the DOM, or
+from where a canvas target was drawn -- from neither method. The browser's
+accessibility tree stands in for UIA. Each page carries one target per
+condition, and every target is checked on the rendered page (tree contents and
+pixels) before it is kept:
+
+| | condition | tree sees it? |
+|---|---|---|
+| C1 | named button, instruction uses its label | yes, by name |
+| C2 | icon button with no accessible name; instruction by purpose or look | as a nameless button |
+| C3 | named button, instruction shares no word or stem with the name | yes, under another name |
+| C4 | button drawn on a `<canvas>` | no |
+| C5 | label repeated across panels; instruction names the panel | several same-named buttons |
+
+Seeds 0-11 were used to develop and inspect the generator (dev). The test set is
+seeds 1000-1199 (200 pages, up to 1,000 items), not looked at before scoring.
+
+**Arms** (`src/computeruse/eval/compare.py`): `tree` (instruction-to-name
+matching, threshold 0.6, first match on ties), `vlm` (the dev-chosen adapter,
+step-01179), `vlm_zero_shot` (reference), `fallback` (tree, else vlm), `snap`
+(vlm point moved into the interactive tree element it falls in, or the nearest
+within 20/1000 units). Click accuracy per condition with 95% bootstrap
+intervals; hypotheses as paired differences.
+
+- **H4** -- on C1 the tree matches or beats the grounder.
+- **H5** -- on C2 and C4 the grounder beats the tree (on C4 the tree can only miss).
+- **H6** -- `snap` is at least as good as both pure arms over all conditions.
+- C3 and C5 are exploratory: name matching is expected to fail C3 and guess on C5;
+  an LLM choosing from the element list is the stronger tree baseline and will be
+  run as a separate arm, reported alongside.
+
+**Threats.** Synthetic pages are cleaner than real apps; the grounder was trained
+on Windows screenshots, not web pages (ScreenSpot web: 61.7%). Real Windows
+C2/C4 cases need hand labels and come later.
