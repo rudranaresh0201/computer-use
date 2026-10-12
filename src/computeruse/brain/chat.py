@@ -47,6 +47,17 @@ class ToolCall:
     latency_s: float = 0.0
 
 
+class ToolFormatError(RuntimeError):
+    """The server could not read the model's tool call (Groq: HTTP 400 tool_use_failed)."""
+
+    def __init__(self, model: str, body: str) -> None:
+        super().__init__(f"{model}: the model wrote a tool call the server could not parse")
+        try:
+            self.generation = str(json.loads(body)["error"].get("failed_generation", ""))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            self.generation = ""
+
+
 class ChatModel(Protocol):
     name: str
 
@@ -90,12 +101,28 @@ class OpenAICompatibleChat:
         return cls(model, GROQ_BASE_URL, key, **kwargs)
 
     def next_call(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ToolCall:
+        """One tool call. Small models sometimes write a call the server can't
+        parse (Groq answers HTTP 400 "tool_use_failed" -- e.g. a `done` whose
+        answer is prose, not JSON). That is the model's slip, not a dead
+        session: say so and ask again, twice; after that, hand the agent the
+        text as a non-call so the episode carries on instead of crashing."""
         start = time.monotonic()
-        payload = self._post_json({"model": self.name, "messages": messages, "tools": tools,
-                                   "tool_choice": "auto", "temperature": 0})
-        call = parse_completion(payload)
-        call.latency_s = time.monotonic() - start
-        return call
+        asked = list(messages)
+        failed_text = ""
+        for _ in range(3):
+            try:
+                payload = self._post_json({"model": self.name, "messages": asked, "tools": tools,
+                                           "tool_choice": "auto", "temperature": 0})
+            except ToolFormatError as e:
+                failed_text = e.generation
+                asked = asked + [{"role": "user", "content": (
+                    "Your last reply was not a valid tool call. Call exactly one tool, with its arguments as a "
+                    "JSON object -- for example done with {\"answer\": \"...\"}.")}]
+                continue
+            call = parse_completion(payload)
+            call.latency_s = time.monotonic() - start
+            return call
+        return ToolCall("", {}, failed_text, latency_s=time.monotonic() - start)
 
     def complete(self, messages: list[dict[str, Any]], **extra: Any) -> tuple[str, dict[str, int]]:
         """Plain text answer (no tools) and its token usage."""
@@ -114,6 +141,8 @@ class OpenAICompatibleChat:
                 wait = float(response.headers.get("retry-after", 2 ** attempt * 5))
                 self._sleep(min(wait, 60.0))
                 continue
+            if response.status_code == 400 and "tool_use_failed" in response.text:
+                raise ToolFormatError(self.name, response.text)
             if response.status_code >= 400:
                 raise RuntimeError(f"{self.name}: HTTP {response.status_code}: {response.text[:300]}")
             return response.json()

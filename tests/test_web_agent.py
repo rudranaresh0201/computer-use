@@ -159,3 +159,25 @@ def test_a_missing_groq_key_says_how_to_set_it(monkeypatch):
     monkeypatch.setattr(chat, "read_key", lambda name: None)
     with pytest.raises(RuntimeError, match="setx GROQ_API_KEY"):
         OpenAICompatibleChat.groq()
+
+
+def test_a_tool_call_the_server_cannot_parse_is_asked_again_not_crashed_on():
+    bad = SimpleNamespace(status_code=400, headers={}, text=json.dumps({"error": {
+        "code": "tool_use_failed", "failed_generation": '{"name": "done", "arguments": The top story is X'}}))
+    good = SimpleNamespace(status_code=200, headers={}, text="", json=lambda: {
+        "choices": [{"message": {"tool_calls": [{"function": {"name": "done", "arguments": '{"answer":"X"}'}}]}}]})
+    sent = []
+
+    def post(*a, json=None, **k):
+        sent.append(json["messages"])
+        return replies.pop(0)
+
+    replies = [bad, good]
+    chat = OpenAICompatibleChat("m", "http://x", "k", post=post)
+    call = chat.next_call([{"role": "user", "content": "goal"}], [])
+    assert call.name == "done" and call.arguments == {"answer": "X"}
+    assert "not a valid tool call" in sent[1][-1]["content"]
+
+    replies = [bad, bad, bad]
+    call = chat.next_call([{"role": "user", "content": "goal"}], [])
+    assert call.name == "" and "top story" in call.text  # the agent gets prose, the episode goes on
