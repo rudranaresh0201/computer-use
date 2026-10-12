@@ -38,7 +38,7 @@ from computeruse.web.browser import WebElement
 
 NORM = (1000, 1000)  # boxes are built in 0-1000 units, so the "viewport" is the unit square
 CONDITIONS = ("intact", "nameless", "absent")
-ARMS = ("tree", "vlm", "fallback", "snap")
+ARMS = ("tree", "vlm", "fallback", "snap", "guarded")
 SPLITS = ("test_same_app", "test_held_out_app", "dev")
 
 
@@ -94,5 +94,6 @@ def report(scored: list[dict[str, Any]]) -> dict[str, Any]:
 
             table[condition]["snap_minus_vlm"] = diff("snap", "vlm")
             table[condition]["fallback_minus_vlm"] = diff("fallback", "vlm")
+            table[condition]["guarded_minus_vlm"] = diff("guarded", "vlm")
         out[split] = table
     return out

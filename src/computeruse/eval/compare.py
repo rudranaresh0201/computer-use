@@ -14,6 +14,8 @@ a point inside the true box -- the same rule as every other eval here.
     vlm       the fine-tuned grounder, from pixels alone (and its zero-shot
               base, as a reference)
     fallback  tree's answer when it has one, else the vlm's point
+    guarded   tree's answer only when exactly one element's name is exactly what
+              was asked (tree_exact), else the vlm's point -- added after Test B
     snap      the vlm's point, moved to the center of the interactive tree
               element it falls in (the smallest one), or the nearest one
               within SNAP_RADIUS; left alone if none -- vision decides
@@ -36,7 +38,7 @@ from computeruse.web.browser import INTERACTIVE_ROLES, WebElement
 MATCH_THRESHOLD = 0.6
 SNAP_RADIUS = 20  # in 0-1000 units, ~30 px on the 1568-wide screen
 CONDITIONS = ("C1", "C2", "C3", "C4", "C5")
-ARMS = ("tree", "vlm_zero_shot", "vlm", "fallback", "snap")
+ARMS = ("tree", "vlm_zero_shot", "vlm", "fallback", "snap", "guarded")
 
 # Words that say what to do, not which element: a name matcher ignores them.
 _IGNORED = {
@@ -74,6 +76,16 @@ def tree_answer(instruction: str, elements: list[WebElement]) -> Optional[WebEle
         if score > best_score:
             best, best_score = element, score
     return best if best_score >= MATCH_THRESHOLD else None
+
+
+def tree_exact(instruction: str, elements: list[WebElement]) -> Optional[WebElement]:
+    """The tree's answer only when it is unambiguous: exactly one interactive
+    element whose name says exactly what the instruction asks for (same
+    words, ignoring the action words). Otherwise None -- "I don't know",
+    instead of the fuzzy matcher's confident wrong guess."""
+    wanted = _tokens(instruction)
+    same = [e for e in interactive(elements) if e.name and _tokens(e.name) == wanted]
+    return same[0] if len(same) == 1 else None
 
 
 def norm_box(element: WebElement, viewport: tuple[int, int]) -> tuple[float, float, float, float]:
@@ -128,6 +140,10 @@ def score_item(
         "vlm": vlm_point,
         "fallback": tree_point if tree_point is not None else vlm_point,
         "snap": snap(vlm_point, elements, viewport),
+        # Chosen on the v3 DEV split (2026-10-12, Test B: tree intact / nameless /
+        # absent) over radius-snap, inside-only snap, strict-subset tree and
+        # agreement-snap variants, BEFORE any test-split number for it was seen.
+        "guarded": center(exact, viewport) if (exact := tree_exact(item["instruction"], elements)) else vlm_point,
     }
     return {
         "id": item["id"], "condition": item["condition"],

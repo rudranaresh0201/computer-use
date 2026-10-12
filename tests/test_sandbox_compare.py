@@ -45,6 +45,15 @@ def test_tree_answer_takes_the_first_of_equal_matches_and_gives_up_below_thresho
     assert compare.tree_answer("click Save", [el("Save", (0, 0, 10, 10), role="heading")]) is None  # not clickable
 
 
+def test_guarded_trusts_the_tree_only_for_one_exact_name():
+    elements = [el("Save", (0, 0, 10, 10), ref="save"), el("Save as", (20, 0, 10, 10), ref="saveas"),
+                el("Reset", (40, 0, 10, 10), ref="r1"), el("Reset", (60, 0, 10, 10), ref="r2")]
+    assert compare.tree_exact("click Save", elements).ref == "save"  # "Save as" is not exactly "Save"
+    assert compare.tree_exact("click Reset", elements) is None  # two of them: ambiguous, so don't guess
+    assert compare.tree_exact("keep my work", elements) is None
+    assert compare.tree_exact("click Save as", elements).ref == "saveas"
+
+
 def test_snap_moves_a_point_into_the_element_it_falls_in_or_near():
     icon = el("", (100, 100, 20, 20), ref="icon")
     toolbar = el("Tools", (0, 90, 400, 40), ref="bar")
@@ -58,7 +67,8 @@ def test_each_arm_answers_by_its_own_rule():
     item = {"id": "p1-c2", "condition": "C2", "instruction": "click the gear icon", "gt_box_norm": [100, 100, 120, 120]}
     elements = [el("", (100, 100, 20, 20), ref="gear"), el("Settings", (0, 500, 80, 30), role="link", ref="nav")]
     scored = compare.score_item(item, elements, vlm_point=(124, 110), vlm_zero_shot_point=(600, 600), viewport=VIEWPORT)
-    assert scored["hits"] == {"tree": False, "vlm_zero_shot": False, "vlm": False, "fallback": False, "snap": True}
+    assert scored["hits"] == {"tree": False, "vlm_zero_shot": False, "vlm": False, "fallback": False, "snap": True,
+                              "guarded": False}
     assert scored["tree_matched"] is None  # "gear" names nothing in the tree
     # the vlm missed by 4 units; snapping to the icon's exact box turned it into a hit
 
