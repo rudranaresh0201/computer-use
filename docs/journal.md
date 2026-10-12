@@ -436,3 +436,26 @@ H1 (same apps, new screenshots) +50.4: item CI [43.5, 57.3], screenshot-clustere
 H3 (unseen apps) +44.9: item [41.4, 48.5], screenshot-clustered [41.1, 48.7] (45 screenshots). Per unseen app,
 zero-shot -> fine-tuned: Audacity 3.1 -> 48.0, Character Map 1.7 -> 52.1, Device Manager 0.0 -> 37.2,
 Notepad++ 1.6 -> 51.0 -- the gain holds on every one of the four, not an average carried by one app.
+
+## 2026-10-13 -- ScreenSpot clustered; how the grounder misses
+
+ScreenSpot fine-tuned − zero-shot +46.6: item CI [43.6, 49.7], screenshot-clustered [43.5, 49.6] (610 screenshots,
+1,272 items) -- unchanged, most screenshots carry one or two instructions.
+
+Misses by distance from the target box's edge (0-1000 units; ~1.5 px per unit on a 1568-wide screen):
+
+| set | misses | near (≤10) | mid (10-50) | far (>50) |
+|---|---|---|---|---|
+| v3 unseen apps | 423 / 790 | 19% | 33% | 48% |
+| v3 same apps | 87 / 246 | 10% | 36% | 54% |
+| ScreenSpot | 455 / 1,272 | 15% | 21% | 65% |
+| ScreenSpot icons | 292 / 575 | 14% | 18% | 68% |
+
+Read: on unseen Windows apps half the misses land within 50 units of the right box -- the right area, the wrong
+neighbour or an edge -- which is the error snapping to the tree repairs (+11.5 when the tree has the target). On
+ScreenSpot (other platforms, human instructions) two-thirds are far: a different element entirely, i.e. the model
+did not understand what was asked, which no tree snap can fix.
+
+Target size dominates on unseen apps: by quartile of box area, hit rate 15% (smallest) / 40% / 65% / 65%. Small
+targets (toolbar icons, tree-view arrows) are where the grounder is weakest -- and where UIA names are often
+missing too. Worth a figure.
