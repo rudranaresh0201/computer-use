@@ -138,8 +138,7 @@ def main() -> None:
         from .realtest.classify import classify
 
         items, coverage = classify(OUT_DIR)
-        print(f"{len(items)} labels across {len(coverage)} apps
-")
+        print(f"{len(items)} labels across {len(coverage)} apps\n")
         print(f"{'app':<18}{'labels':>8}{'named':>8}{'unnamed':>9}{'absent':>8}{'UIA exposes':>14}")
         for app, c in coverage.items():
             print(f"{app:<18}{c['labels']:>8}{c['named']:>8}{c['unnamed']:>9}{c['absent']:>8}{c['exposed']:>13.0%}")
