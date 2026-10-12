@@ -90,11 +90,23 @@ class OpenAICompatibleChat:
         return cls(model, GROQ_BASE_URL, key, **kwargs)
 
     def next_call(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ToolCall:
-        body = {"model": self.name, "messages": messages, "tools": tools, "tool_choice": "auto", "temperature": 0}
+        start = time.monotonic()
+        payload = self._post_json({"model": self.name, "messages": messages, "tools": tools,
+                                   "tool_choice": "auto", "temperature": 0})
+        call = parse_completion(payload)
+        call.latency_s = time.monotonic() - start
+        return call
+
+    def complete(self, messages: list[dict[str, Any]], **extra: Any) -> tuple[str, dict[str, int]]:
+        """Plain text answer (no tools) and its token usage."""
+        payload = self._post_json({"model": self.name, "messages": messages, "temperature": 0, **extra})
+        usage = {k: int(v) for k, v in (payload.get("usage") or {}).items() if k in ("prompt_tokens", "completion_tokens")}
+        return payload["choices"][0]["message"].get("content") or "", usage
+
+    def _post_json(self, body: dict[str, Any]) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
         if self._key:
             headers["Authorization"] = f"Bearer {self._key}"
-        start = time.monotonic()
         for attempt in range(self._max_retries + 1):
             response = self._post(self._url, headers=headers, json=body, timeout=self._timeout)
             if response.status_code == 429 and attempt < self._max_retries:
@@ -104,11 +116,8 @@ class OpenAICompatibleChat:
                 continue
             if response.status_code >= 400:
                 raise RuntimeError(f"{self.name}: HTTP {response.status_code}: {response.text[:300]}")
-            break
-        payload = response.json()
-        call = parse_completion(payload)
-        call.latency_s = time.monotonic() - start
-        return call
+            return response.json()
+        raise RuntimeError(f"{self.name}: still rate-limited after {self._max_retries} retries")
 
 
 def parse_completion(payload: dict[str, Any]) -> ToolCall:
