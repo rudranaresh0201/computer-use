@@ -114,9 +114,36 @@ def main() -> None:
     web_run_parser.add_argument("--headless", action="store_true", help="No Chrome window")
     web_run_parser.add_argument("--no-video", action="store_true", help="Don't record runs/videos/*.webm")
 
+    capture_parser = subparsers.add_parser(
+        "capture", help="Save a screenshot + the full UIA tree of the app you click on (Tests C/D)"
+    )
+    capture_parser.add_argument("app", help="a short name for the app, e.g. vlc, audacity, spotify")
+    capture_parser.add_argument("--delay", type=int, default=5, help="seconds to click on the app's window")
+    label_parser = subparsers.add_parser("label", help="Open the page for boxing what a person can click (Tests C/D)")
+    label_parser.add_argument("--port", type=int, default=8765)
+    subparsers.add_parser("coverage", help="Test D: how much of what a person can click does UIA expose, per app")
+
     args = parser.parse_args()
 
-    if args.command == "web-run":
+    if args.command == "capture":
+        from .realtest.capture import capture
+
+        capture(args.app, delay=args.delay)
+    elif args.command == "label":
+        from .realtest.label import serve
+
+        serve(port=args.port)
+    elif args.command == "coverage":
+        from .realtest.capture import OUT_DIR
+        from .realtest.classify import classify
+
+        items, coverage = classify(OUT_DIR)
+        print(f"{len(items)} labels across {len(coverage)} apps
+")
+        print(f"{'app':<18}{'labels':>8}{'named':>8}{'unnamed':>9}{'absent':>8}{'UIA exposes':>14}")
+        for app, c in coverage.items():
+            print(f"{app:<18}{c['labels']:>8}{c['named']:>8}{c['unnamed']:>9}{c['absent']:>8}{c['exposed']:>13.0%}")
+    elif args.command == "web-run":
         from .web.run import DEFAULT_MODEL
         from .web.run import main as web_run_main
 
