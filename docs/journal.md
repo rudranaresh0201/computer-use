@@ -318,3 +318,23 @@ Paired, fine-tuned minus zero-shot (95% CI): mobile +59.2 [54.6, 63.5] (n=502), 
 Papers report the plain mean of the six cells, so **61.9** is the comparable figure. For orientation only (each paper has its own prompts, resolution and parsing): SeeClick (9.6B, ~1M examples) 53.4; ShowUI-2B (same Qwen2-VL-2B base, 256K examples) 75.1; the ShowUI paper measured zero-shot Qwen2-VL-2B at 9.3, below our 17.4 -- our box-center parsing is, if anything, generous to the baseline, so the gain is not an artifact of an under-measured zero-shot.
 
 Read: trained only on 10 Windows apps (~1.5k examples), the adapter improved every platform, phones most (12.0 -> 71.1) -- what it learned transfers beyond Windows. Text targets beat icons everywhere (82/58, 70/40, 76/46): finding written labels transferred better than knowing what icons mean. Desktop icons are weakest (40.0) -- ScreenSpot's Windows shots are 960x540 and were not upscaled; a hypothesis, untested. Caveats: ScreenSpot v1 has known label noise (v2 exists); one training run; cross-paper numbers are approximate.
+
+## 2026-10-12 (evening) — Test B: real Windows screens, UIA damaged on purpose
+
+The grounder never reads the tree, so its 1,591 v3 eval answers (`eval/results/step-01179.jsonl`) can be re-scored against real UIA trees under imposed conditions, on CPU (`eval/real_tree.py`; rules fixed in its docstring before running). Tree = the named UIA elements stored per screenshot (median 13; raw trees with unnamed/decorative elements were not saved, so this tree is cleaner than a real one). The vlm column reproduces the eval exactly (64.6 / 46.5 / 77.8), a consistency check.
+
+| test_held_out_app (n=790) | tree | vlm | fallback | snap | snap − vlm |
+|---|---|---|---|---|---|
+| intact | 92.8 | 46.5 | 93.0 | 58.0 | **+11.5 [9.4, 13.8]** |
+| target nameless | 1.0 | 46.5 | **37.0** | 58.0 | +11.5 |
+| target absent | 1.0 | 46.5 | 37.0 | 24.8 | **−21.6 [−24.7, −18.7]** |
+
+test_same_app (n=246): tree 85.0 / vlm 64.6 / snap 67.9 intact (+3.3 [1.2, 5.7]); absent: snap −17.1.
+
+What it says:
+1. **Snapping vision onto the tree's boxes helps when the target is in the tree, named or not**: unseen apps 46.5 → 58.0. The VLM gets close; UIA supplies the exact rectangle.
+2. **When the target is not in the tree, snapping hurts badly** (it moves a near-correct click onto a neighbour). Knowing whether the tree contains the target is the open problem a good hybrid must solve.
+3. **Naive "tree first, else vision" is worse than vision alone once the tree is incomplete** (37.0 vs 46.5): the name matcher confidently picks a wrong element instead of saying "not here".
+4. Even an intact tree is not 100% for name matching: 23.2% of same-app test targets share their exact name with another element on the screen (3.2% on held-out apps) -- real-world C5.
+
+Not yet allowed: tuning the snap rule on these test numbers. Any new rule (e.g. snap only when the point is inside a box) is designed on dev and confirmed on test.
