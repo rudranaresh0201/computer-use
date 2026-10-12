@@ -114,6 +114,14 @@ def main() -> None:
     web_run_parser.add_argument("--headless", action="store_true", help="No Chrome window")
     web_run_parser.add_argument("--no-video", action="store_true", help="Don't record runs/videos/*.webm")
 
+    desktop_parser = subparsers.add_parser(
+        "desktop-run", help="The LangGraph agent does a task in a Windows app (brain: Groq, eyes: UIA)"
+    )
+    desktop_parser.add_argument("goal", help='e.g. "What is 123 times 45?"')
+    desktop_parser.add_argument("--app", default="calculator", help="calculator | notepad_pp | paint")
+    desktop_parser.add_argument("--model", default="openai/gpt-oss-20b", help="Groq model id")
+    desktop_parser.add_argument("--max-steps", type=int, default=20)
+
     capture_parser = subparsers.add_parser(
         "capture", help="Save a screenshot + the full UIA tree of the app you click on (Tests C/D)"
     )
@@ -142,6 +150,10 @@ def main() -> None:
         print(f"{'app':<18}{'labels':>8}{'named':>8}{'unnamed':>9}{'absent':>8}{'UIA exposes':>14}")
         for app, c in coverage.items():
             print(f"{app:<18}{c['labels']:>8}{c['named']:>8}{c['unnamed']:>9}{c['absent']:>8}{c['exposed']:>13.0%}")
+    elif args.command == "desktop-run":
+        from .desktop_run import main as desktop_main
+
+        sys.exit(desktop_main(args.goal, args.app, args.model, args.max_steps))
     elif args.command == "web-run":
         from .web.run import DEFAULT_MODEL
         from .web.run import main as web_run_main
