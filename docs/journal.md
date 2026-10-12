@@ -338,3 +338,12 @@ What it says:
 4. Even an intact tree is not 100% for name matching: 23.2% of same-app test targets share their exact name with another element on the screen (3.2% on held-out apps) -- real-world C5.
 
 Not yet allowed: tuning the snap rule on these test numbers. Any new rule (e.g. snap only when the point is inside a box) is designed on dev and confirmed on test.
+
+**Same evening: a hybrid that doesn't break when the tree is blind.** Five hybrid rules were compared on the v3 **dev** split under the three tree conditions (radius snap, inside-only snap, strict-subset tree, agreement snap, and "guarded": the tree only when exactly one element's name is exactly what was asked, else vision). Guarded won on dev (93.0 / 76.9 / 76.9 vs vision 77.8), was committed (`d665c19`), and only then run once on the test splits:
+
+| guarded − vision (95% CI) | test_same_app (n=246) | test_held_out_app (n=790) |
+|---|---|---|
+| tree intact | **+20.3 [15.4, 25.6]** (85.0 vs 64.6) | **+31.4 [28.2, 34.7]** (77.8 vs 46.5) |
+| target nameless / absent | −0.8 [−2.0, 0.0] | −1.1 [−1.9, −0.4] |
+
+So on real screens: when the tree has the target, the guarded hybrid recovers most of the tree's advantage; when it doesn't, it costs about one point against vision alone -- where naive tree-first cost 9.5 and radius snap 21.6. Its intact score on unseen apps (77.8) is still below the tree alone (92.8): exact-name agreement declines many correct tree matches, so a better-calibrated guard is the obvious next step (designed on dev again).
