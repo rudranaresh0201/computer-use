@@ -363,3 +363,22 @@ So on real screens: when the tree has the target, the guarded hybrid recovers mo
 Read: an LLM removes the tree's wording and ambiguity problems (C3, C5) but not its blindness: unnamed icons and canvas targets stay at ~0 even for the strongest tree method -- the cases vision exists for. Its C1 misses are slips, not blindness: one-word instructions answered with a wrong ref ("Translate" -> Sort, "Report" -> Print) or NONE.
 
 **Pre-registered now, before the grounder's answers on these items exist:** `llm_guarded` = the LLM's pick when it names an element, else the grounder's point -- the LLM's NONE as the signal that the tree doesn't have the target. Expectation: close to the tree on C3/C5, close to vision on C2/C4. Scored on the same 250 items once `compare-v1/results/step-01179.jsonl` arrives from the Kaggle run.
+
+## 2026-10-12 (night) — Test A: H4, H5 and H6 all supported
+
+Kaggle, 1.9 h, 1,000 frozen test items (seeds 1000-1199), adapter step-01179. Click accuracy [95% CI]:
+
+| arm | C1 named | C2 unnamed icon | C3 reworded | C4 canvas | C5 ambiguous | mean |
+|---|---|---|---|---|---|---|
+| tree (name match) | 100 | 0 | 0 | 0 | 26 [20, 32] | 25.3 |
+| vlm zero-shot | 60 | 8 | 0 | 48 | 40 | 31.2 |
+| **vlm (fine-tuned)** | 94 [90, 97] | 40 [34, 47] | 31 [25, 38] | **99** [98, 100] | 65 [58, 72] | 65.8 |
+| fallback | 100 | 38 | 30 | 76 | 26 | 53.8 |
+| **snap** | 94 | 41 | 33 | 99 | 70 | **67.6** |
+
+- H4 (C1: tree >= vlm): +6.0 [3.0, 9.5] -- supported.
+- H5 (vlm > tree on C2 / C4): +40.0 [33.5, 47.0] / +99.0 [97.5, 100] -- supported.
+- H6 (snap >= both overall): vs tree +42.3 [39.0, 45.7], vs vlm +1.8 [1.0, 2.7] -- supported.
+- Naive fallback again costs vision 12.0 points [9.6, 14.7] -- the same failure as Test B.
+- Fine-tuning helps on web-style pages it never trained on: zero-shot mean 31.2 -> 65.8.
+- Weak spots of vision: unnamed icons (40) and reworded instructions (31) -- exactly where the LLM-over-tree arm is strong on C3 (88) and C5 (100), which is why `llm_guarded` was pre-registered.
