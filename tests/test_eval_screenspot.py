@@ -56,3 +56,20 @@ def test_report_has_the_usual_table_and_paired_differences():
     assert table["mobile"]["n"] == 0 and table["mobile"]["accuracy"] is None
     assert out["vs_zero_shot"]["fine_tuned"]["desktop"]["diff"] == 1.0
     assert out["vs_zero_shot"]["fine_tuned"]["web"]["diff"] == 0.0
+
+
+def test_v2_pixel_xywh_boxes_become_our_coordinates_and_platform_comes_from_the_file():
+    # the first desktop row of the real screenspot_desktop_v2.json, on its 960x540 image
+    rows = [{"img_filename": "pc_ede36f9b.png", "bbox": [910, 78, 44, 34], "instruction": "close this window",
+             "data_type": "icon", "data_source": "shop"}]
+    items = screenspot.items_from_v2("desktop", rows, lambda f: (960, 540), lambda f: b"png", start_index=7)
+    item = items[0]
+    assert item.bbox_norm == (948, 144, 994, 207)
+    assert item.platform == "desktop" and item.slice == "desktop/icon"  # not PLATFORM_OF["shop"] == "web"
+    assert item.id == "v2_0007_pc_ede36f9b"
+
+
+def test_v2_box_outside_its_image_is_refused():
+    rows = [{"img_filename": "a.png", "bbox": [900, 10, 200, 10], "instruction": "x", "data_type": "text", "data_source": "ios"}]
+    with pytest.raises(ValueError, match="outside"):
+        screenspot.items_from_v2("mobile", rows, lambda f: (960, 540), lambda f: b"")

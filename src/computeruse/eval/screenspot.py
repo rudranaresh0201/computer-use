@@ -65,10 +65,11 @@ class Item:
     data_type: str  # "text" | "icon"
     data_source: str  # "windows", "ios", "gitlab", ...
     image_bytes: bytes
+    platform_name: str = ""  # ScreenSpot-v2 states it per file; v1 derives it from data_source
 
     @property
     def platform(self) -> str:
-        return PLATFORM_OF[self.data_source]
+        return self.platform_name or PLATFORM_OF[self.data_source]
 
     @property
     def slice(self) -> str:
@@ -108,6 +109,59 @@ def load(cache_dir: Path | None = None) -> list[Item]:
         path = hf_hub_download(REPO_ID, shard, repo_type="dataset", cache_dir=cache_dir)
         rows = pq.read_table(path).to_pylist()
         items += items_from_rows(rows, start_index=len(items))
+    return items
+
+
+V2_REPO_ID = "OS-Copilot/ScreenSpot-v2"
+V2_EXPECTED_ROWS = 1272
+
+
+def items_from_v2(platform: str, rows: list[dict[str, Any]], image_size, image_bytes, start_index: int = 0) -> list[Item]:
+    """ScreenSpot-v2 (Wu et al., OS-Atlas, 2024): the same 1,272 instructions
+    with mislabeled boxes corrected. Its format differs from v1 -- checked on
+    the real files 2026-10-13: one JSON per platform, bbox [x, y, width,
+    height] in PIXELS of the image, images in one zip. The platform is the
+    file's, not the source's: "shop" appears under desktop, mobile and web."""
+    items = []
+    for offset, row in enumerate(rows):
+        width, height = image_size(row["img_filename"])
+        x, y, w, h = (float(v) for v in row["bbox"])
+        x1, y1, x2, y2 = x / width, y / height, (x + w) / width, (y + h) / height
+        if not (-0.01 <= x1 <= x2 <= 1.01 and -0.01 <= y1 <= y2 <= 1.01):
+            raise ValueError(f"{platform} row {offset}: bbox {row['bbox']} is outside its {width}x{height} image")
+        clamp = lambda v: min(1.0, max(0.0, v))
+        index = start_index + offset
+        items.append(Item(
+            id=f"v2_{index:04d}_{Path(row['img_filename']).stem}",
+            instruction=row["instruction"],
+            bbox_norm=tuple(round(clamp(v) * COORD_NORM_RANGE) for v in (x1, y1, x2, y2)),
+            data_type=row["data_type"], data_source=row["data_source"],
+            image_bytes=image_bytes(row["img_filename"]), platform_name=platform,
+        ))
+    return items
+
+
+def load_v2(cache_dir: Path | None = None) -> list[Item]:
+    import json
+    import zipfile
+
+    from huggingface_hub import hf_hub_download
+    from PIL import Image
+
+    archive = zipfile.ZipFile(hf_hub_download(V2_REPO_ID, "screenspotv2_image.zip", repo_type="dataset", cache_dir=cache_dir))
+    members = {Path(name).name: name for name in archive.namelist() if not name.endswith("/")}
+
+    def image_bytes(filename: str) -> bytes:
+        return archive.read(members[filename])
+
+    def image_size(filename: str) -> tuple[int, int]:
+        return Image.open(io.BytesIO(image_bytes(filename))).size
+
+    items: list[Item] = []
+    for platform in PLATFORMS:
+        path = hf_hub_download(V2_REPO_ID, f"screenspot_{platform}_v2.json", repo_type="dataset", cache_dir=cache_dir)
+        rows = json.loads(Path(path).read_text(encoding="utf-8"))
+        items += items_from_v2(platform, rows, image_size, image_bytes, start_index=len(items))
     return items
 
 
