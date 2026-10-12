@@ -382,3 +382,22 @@ Kaggle, 1.9 h, 1,000 frozen test items (seeds 1000-1199), adapter step-01179. Cl
 - Naive fallback again costs vision 12.0 points [9.6, 14.7] -- the same failure as Test B.
 - Fine-tuning helps on web-style pages it never trained on: zero-shot mean 31.2 -> 65.8.
 - Weak spots of vision: unnamed icons (40) and reworded instructions (31) -- exactly where the LLM-over-tree arm is strong on C3 (88) and C5 (100), which is why `llm_guarded` was pre-registered.
+
+## 2026-10-12 -- Clustered intervals for Test B: every conclusion survives
+
+Targets on one screenshot share its layout, theme and resolution, so they are not independent draws; item-level
+bootstrap intervals are too narrow. `scripts/clustered_intervals.py` recomputes them resampling whole screenshots
+(`report.clustered_paired_difference`), and -- as a sensitivity check only, since 4 clusters is too few for a real
+interval -- whole apps. Held-out apps (790 targets, 45 screenshots, 4 apps), points vs vision alone:
+
+| tree | method | diff | item CI | screenshot CI | app CI (4 apps) |
+|---|---|---|---|---|---|
+| intact | guarded | +31.4 | [28.2, 34.7] | [27.1, 35.9] | [20.9, 41.6] |
+| intact | snap | +11.5 | [9.4, 13.8] | [9.4, 13.9] | [9.6, 13.5] |
+| blind (nameless/absent) | guarded | −1.1 | [−1.9, −0.4] | [−1.9, −0.5] | [−4.2, 0.0] |
+| absent | snap | −21.6 | [−24.7, −18.7] | [−25.6, −17.8] | [−27.3, −13.2] |
+| blind | fallback | −9.5 | [−11.8, −7.3] | [−11.8, −7.4] | [−12.5, −7.3] |
+
+Screenshot clustering widens the guarded interval by ~1.2 points a side; no sign flips. Same-app split (246 targets,
+only 15 screenshots) likewise: guarded +20.3 [16.2, 24.3]. The paper reports the screenshot-clustered column.
+H1/H3 and Test A get the same treatment once their zero-shot / per-item files are pulled from the Hub.

@@ -124,6 +124,43 @@ def paired_difference(
     }
 
 
+def clustered_paired_difference(
+    a: dict[str, bool], b: dict[str, bool], cluster_of: dict[str, str], n_boot: int = 2000, seed: int = 0
+) -> dict:
+    """paired_difference, resampling whole clusters (screenshots, apps)
+    instead of single examples. Ten targets on one screenshot share its
+    theme, resolution and layout, so they are not ten independent draws;
+    resampling them one by one makes the interval too narrow. Drawing
+    clusters keeps each screenshot's examples together, and the interval
+    widens by however much they really move together."""
+    if a.keys() != b.keys():
+        raise ValueError(
+            f"arms scored different examples: {len(a.keys() - b.keys())} only in a, "
+            f"{len(b.keys() - a.keys())} only in b"
+        )
+    groups: dict[str, list[int]] = {}
+    for i in sorted(a):
+        groups.setdefault(cluster_of[i], []).append(int(a[i]) - int(b[i]))
+    if not groups:
+        return {"n": 0, "clusters": 0, "a": 0.0, "b": 0.0, "diff": 0.0, "ci95": [0.0, 0.0]}
+    sums = [(sum(d), len(d)) for d in groups.values()]
+    rng = random.Random(seed)
+    boots = []
+    for _ in range(n_boot):
+        drawn = rng.choices(sums, k=len(sums))
+        boots.append(sum(s for s, _ in drawn) / sum(k for _, k in drawn))
+    boots.sort()
+    n = len(a)
+    return {
+        "n": n,
+        "clusters": len(groups),
+        "a": sum(a.values()) / n,
+        "b": sum(b.values()) / n,
+        "diff": sum(s for s, _ in sums) / n,
+        "ci95": [_percentile(boots, 0.025), _percentile(boots, 0.975)],
+    }
+
+
 def ci_by_arm_and_split(records: list[EvalRecord], n_boot: int = 2000) -> dict[str, dict[str, list[float]]]:
     out: dict[str, dict[str, list[float]]] = {}
     for arm in sorted({r.arm for r in records}):

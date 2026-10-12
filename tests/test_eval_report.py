@@ -108,3 +108,35 @@ def test_paired_difference_refuses_mismatched_examples():
 
     with pytest.raises(ValueError, match="different examples"):
         paired_difference({"a": True}, {"b": True})
+
+
+def test_clustered_difference_matches_paired_when_every_example_is_its_own_cluster():
+    from computeruse.eval.report import clustered_paired_difference, paired_difference
+
+    ids = [f"e{i}" for i in range(300)]
+    b = {i: n % 4 == 0 for n, i in enumerate(ids)}
+    a = {i: b[i] or n % 4 == 1 for n, i in enumerate(ids)}
+    clustered = clustered_paired_difference(a, b, {i: i for i in ids})
+    plain = paired_difference(a, b)
+    assert clustered["diff"] == plain["diff"] and clustered["clusters"] == 300
+    assert abs(clustered["ci95"][0] - plain["ci95"][0]) < 0.03 and abs(clustered["ci95"][1] - plain["ci95"][1]) < 0.03
+
+
+def test_clustered_difference_widens_when_examples_move_together():
+    from computeruse.eval.report import clustered_paired_difference, paired_difference
+
+    # 30 screenshots x 10 targets; whether a wins is decided per screenshot, not per target
+    ids = [f"s{s}_t{t}" for s in range(30) for t in range(10)]
+    cluster = {i: i.split("_")[0] for i in ids}
+    a = {i: int(cluster[i][1:]) % 3 != 0 for i in ids}
+    b = {i: False for i in ids}
+    wide = clustered_paired_difference(a, b, cluster)["ci95"]
+    narrow = paired_difference(a, b)["ci95"]
+    assert (wide[1] - wide[0]) > 1.5 * (narrow[1] - narrow[0])
+
+
+def test_clustered_difference_refuses_mismatched_examples():
+    from computeruse.eval.report import clustered_paired_difference
+
+    with pytest.raises(ValueError, match="different examples"):
+        clustered_paired_difference({"a": True}, {"b": True}, {"a": "s", "b": "s"})
