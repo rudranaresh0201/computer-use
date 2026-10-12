@@ -54,3 +54,37 @@ GPU; runs on the laptop.
 Conditions and metrics are fixed in this file before a run; the task suite
 is frozen before the comparison runs; every rate gets an interval; failures
 are categorized, not only counted.
+
+## Status and the plan to make it excellent (2026-10-12, evening)
+
+**Done:** H1/H3 (v3 ablation), ScreenSpot (17.4 → 61.9), Test B (real screens, tree damaged:
+vision 46.5 vs tree 1.0 when blind; naive hybrids fall below vision), guarded hybrid (dev-chosen,
+test: +31.4 / −1.1), LLM-over-tree baseline (fixes wording/ambiguity, still ~0 on unnamed icons and
+canvas). **Running:** Test A on Kaggle. **Built, waiting on a person:** Tests C/D tooling.
+
+What "excellent" needs, in order:
+
+1. **Finish the comparison.** Test A results; re-score A's 250-item subset with `guarded` and the
+   pre-registered `llm_guarded`.
+2. **Real blind spots (C) and how common they are (D).** One capture session (~20 real apps:
+   Electron, Qt, GTK, wxWidgets, canvas-heavy, plus native ones for contrast), one labelling pass
+   (~250 boxes). C needs ~0.5 GPU-h. D's coverage table is the headline statistic.
+3. **A better guard**, designed on dev only: use agreement between the tree's pick and the
+   grounder's point (or the LLM's NONE) to decide whom to trust. Target: close the 77.8 vs 92.8
+   gap when the tree works, keep ~0 cost when it is blind. Confirmed once on B, A and C.
+4. **Honest uncertainty.** Items cluster by screenshot and app, so item-level bootstrap intervals
+   are too narrow; recompute the headline intervals with a screenshot-clustered bootstrap (CPU).
+5. **Robustness, if GPU allows:** ScreenSpot-v2 (corrected labels, ~2 GPU-h); a second training
+   seed (~8 GPU-h) to show the result isn't one lucky run.
+6. **Related work** before any "first" claim (OS-Atlas, UGround, ShowUI, SeeClick, UFO/UFO2,
+   OmniParser, WinSpot, GroundCUA, accessibility-tree agents).
+7. **Writing:** blog first (after A), then a 4-page workshop paper. Figures: learning curve,
+   ScreenSpot by platform, condition × method table, tree-damage chart, coverage per app.
+
+Product, in parallel:
+
+1. First live `web-run` with the free brain, recorded.
+2. A Windows task end to end (UIA eyes + the existing hands + the brain).
+3. The guarded hybrid inside the live agent (tree when it's sure, vision otherwise) --
+   needs the grounder served from a GPU; CPU is too slow for an interactive demo.
+4. A task suite on the sandbox pages for success rate and the "says done but isn't" rate.
