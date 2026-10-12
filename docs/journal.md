@@ -401,3 +401,38 @@ interval -- whole apps. Held-out apps (790 targets, 45 screenshots, 4 apps), poi
 Screenshot clustering widens the guarded interval by ~1.2 points a side; no sign flips. Same-app split (246 targets,
 only 15 screenshots) likewise: guarded +20.3 [16.2, 24.3]. The paper reports the screenshot-clustered column.
 H1/H3 and Test A get the same treatment once their zero-shot / per-item files are pulled from the Hub.
+
+## 2026-10-12 (night) -- Test A re-scored: the pre-registered llm_guarded hybrid is the best method
+
+`scripts/rescore_compare.py` re-scores Test A on CPU from the grounder's saved answers (Hub `compare-v1/results/`),
+first checking that the 5 arms the Kaggle notebook scored reproduce exactly (1,000/1,000 items, all 5 arms).
+
+Full test set, adding `guarded` (frozen d665c19): C1 100 / C2 40 / C3 31 / C4 99 / C5 65, mean 67.0 -- it fixes the
+grounder's C1 slips and otherwise *is* the grounder, as designed: +1.2 over vision [0.6, 1.9], never below it.
+
+The 250-item LLM subset (first 50 test pages), with `llm_guarded` exactly as pre-registered in 1ad9836 (LLM's pick,
+else the grounder when the LLM says NONE):
+
+| arm | C1 | C2 | C3 | C4 | C5 | mean |
+|---|---|---|---|---|---|---|
+| tree (name matching) | 100 | 0 | 0 | 0 | 32 | 26.4 |
+| vision (grounder) | 98 | 38 | 28 | 100 | 68 | 66.4 |
+| guarded | 100 | 38 | 28 | 100 | 68 | 66.8 |
+| tree_llm | 88 | 2 | 88 | 0 | 100 | 55.6 |
+| **llm_guarded** | 92 | 32 | **92** | **100** | **100** | **83.2** |
+
+llm_guarded − vision +16.8 [12.8, 20.8]; − tree_llm +27.6 [24.8, 30.8]; − guarded +16.4 [12.4, 20.4] (pages resampled
+whole). The expectation held: tree-like on wording and ambiguity (C3 +64, C5 +32 over vision), vision-like on canvas
+(C4 100). Its cost: C1 −6 [−14, 2] (LLM slips on one-word instructions) and C2 −6 [−14, 0] -- on 15 of 50 unnamed
+icons the LLM named some nameless button instead of saying NONE, overriding a grounder that would have been right
+more often. Next design target (dev only): don't let the LLM override vision when its pick has no name.
+
+Page-clustered intervals for the rest of Test A: vision − tree +40.5 [37.7, 43.4]; snap − vision +1.8 [1.1, 2.6];
+fallback − vision −12.0 [−14.4, −9.7]; fine-tuned − zero-shot +34.6 [31.4, 37.8].
+
+## 2026-10-12 (night) -- H1/H3 with screenshot-clustered intervals
+
+H1 (same apps, new screenshots) +50.4: item CI [43.5, 57.3], screenshot-clustered [43.0, 57.8] (15 screenshots).
+H3 (unseen apps) +44.9: item [41.4, 48.5], screenshot-clustered [41.1, 48.7] (45 screenshots). Per unseen app,
+zero-shot -> fine-tuned: Audacity 3.1 -> 48.0, Character Map 1.7 -> 52.1, Device Manager 0.0 -> 37.2,
+Notepad++ 1.6 -> 51.0 -- the gain holds on every one of the four, not an average carried by one app.

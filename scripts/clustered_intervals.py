@@ -4,6 +4,7 @@ clustered_paired_difference): examples on one screenshot resampled together,
 then -- the strictest view -- whole apps resampled together.
 
     python scripts/clustered_intervals.py test-b <eval/results/step-01179.jsonl>
+    python scripts/clustered_intervals.py h1-h3 <eval/results/>     (step-01179.jsonl vs zero_shot.jsonl)
 """
 
 from __future__ import annotations
@@ -49,9 +50,22 @@ def test_b(predictions_path: Path) -> dict:
     return out
 
 
+def h1_h3(results_dir: Path) -> dict:
+    shot_of = {row["id"]: row["screenshot_id"] for row in _read(LABELS)}
+    tuned = _read(results_dir / "step-01179.jsonl")
+    zero = {r["example_id"]: r["hit"] for r in _read(results_dir / "zero_shot.jsonl")}
+    out = {}
+    for split, name in (("test_same_app", "H1"), ("test_held_out_app", "H3")):
+        rows = [r for r in tuned if r["split"] == split]
+        out[f"{name} {split}|fine_tuned-zero_shot"] = three_ways(
+            {r["example_id"]: r["hit"] for r in rows}, {r["example_id"]: zero[r["example_id"]] for r in rows},
+            {r["example_id"]: shot_of[r["example_id"]] for r in rows}, {r["example_id"]: r["app"] for r in rows})
+    return out
+
+
 if __name__ == "__main__":
     which, path = sys.argv[1], Path(sys.argv[2])
-    result = {"test-b": test_b}[which](path)
+    result = {"test-b": test_b, "h1-h3": h1_h3}[which](path)
     for key, row in result.items():
         print(f"{key:48s} n={row['n']:4d} diff={row['diff']:+6.1f}  item{row['item_ci']}  "
               f"screenshot{row['screenshot_ci']} ({row['screenshots']})  app{row['app_ci']} ({row['apps']})")
