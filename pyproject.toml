@@ -17,6 +17,12 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+# Chrome automation (computeruse/web). Uses the Chrome already installed on
+# the machine (channel="chrome"), so no `playwright install` download.
+# aria_snapshot(mode="ai") with refs needs a recent Playwright.
+web = [
+    "playwright>=1.55",
+]
 # chat-template formatting (training/chat_format.py) and LoRA config
 # verification (training/lora_config.py) -- CPU-only, used to verify
 # prompt structure and adapter config against the real tokenizer/model

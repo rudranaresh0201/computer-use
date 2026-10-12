@@ -98,9 +98,19 @@ def main() -> None:
         "--no-resume", action="store_true", help="Ignore progress.json and start fresh"
     )
 
+    web_parser = subparsers.add_parser(
+        "web", help="Drive Chrome by hand through the agent's own eyes and hands"
+    )
+    web_parser.add_argument("url", nargs="?", default=None, help="Page to open first")
+    web_parser.add_argument("--headless", action="store_true", help="Run Chrome without a window")
+
     args = parser.parse_args()
 
-    if args.command == "run":
+    if args.command == "web":
+        from .web.shell import main as web_main
+
+        web_main(args.url, headless=args.headless)
+    elif args.command == "run":
         run(args.goal)
     elif args.command == "collect-dataset":
         apps_filter = args.apps.split(",") if args.apps else None
