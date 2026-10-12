@@ -278,3 +278,24 @@ Smoke (4 dev examples, dev only, no test example scored) passed end to end: fp16
 **The smoke caught one more scoring bug before it could touch a number that matters.** Zero-shot answered 3 of 4 times with four numbers in one bracket -- `(333, 333, 400, 399)`, `(779,207,841,250)` -- a box written differently from the `(x1,y1),(x2,y2)` the 2026-10-11 fix handled. All three parsed as "no answer" and scored as misses. One of them, `(779,207,841,250)` on `settings_0013_e6`, centers at (810, 228), next to the fine-tuned model's hit at (811, 245): zero-shot was being marked wrong for its syntax, not its grounding. `parse_point` now reads `(x1, y1, x2, y2)` and `[x1, y1, x2, y2]` as a box scored at its center -- the same rule decided 2026-10-11, applied to the syntax the model actually used. The four smoke answers are now test cases, verbatim.
 
 Also seen: the Hub holds both `adapters/step-01179` (the callback's end-of-run snapshot) and `final/` -- the same checkpoint. Both are scored on the dev subset (~8 extra minutes) and show identical results; ties go to the first, `step-01179`.
+
+## 2026-10-12 (morning) — The ablation: H1 and H3 supported
+
+Full eval finished in 4.9 h on one T4 (`ad1446a`). Adapter chosen on dev only (200-example seeded subset, choice pushed to the Hub before any test example): **step 1179** (identical to `final`).
+
+**Dev click accuracy by training step** (the learning curve; zero-shot is step 0): 4.0% → 42.5% (100) → 45.5 → 53.0 → 55.0 (400) → 61.0 → 63.0 → 64.5 → 65.5 (800) → 69.5 → 68.0 → 72.5 (1100) → **73.0% (1179)**. Median miss distance 297 → 2 units (of 1000). Still rising at the last step: more steps or more data may help.
+
+**Test, scored once** (95% bootstrap CI):
+
+| arm | dev (555) | test_same_app (246) | test_held_out_app (790) |
+|---|---|---|---|
+| uia_only | 100.0% | 100.0% | 99.6% |
+| zero_shot | 6.3% [4,8] | 14.2% [10,19] | 1.5% [1,2] |
+| fine_tuned | 77.8% [74,81] | 64.6% [59,70] | 46.5% [43,50] |
+| hybrid | 100.0% | 100.0% | 99.7% |
+
+- **H1 supported:** trained apps, new screenshots: +50.4 pts [+43.5, +57.3], n=246.
+- **H3 supported:** four apps never trained on: +44.9 pts [+41.4, +48.5], n=790; and held-out (46.5%) < same-app (64.6%), as predicted.
+- Zero-shot answered in box form on 165/555, 104/246, 247/790 examples and failed to parse on 1 of 1591 -- the 2026-10-11/12 parser fixes are what made it a fair baseline.
+
+**Read honestly:** dev 77.8% includes the 200 examples used for selection, so the test columns are the headline. UIA-only and hybrid are ~100% by construction (labels come from UIA), as written down before this run -- H2 needs a test set from apps where UIA is blind. One training run, one seed. The held-out apps still expose UIA; whether this transfers to custom-drawn UIs is the next experiment.
