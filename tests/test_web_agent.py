@@ -154,6 +154,8 @@ def test_rate_limits_are_waited_out_not_crashed_on():
 
 
 def test_a_missing_groq_key_says_how_to_set_it(monkeypatch):
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    import computeruse.brain.chat as chat
+
+    monkeypatch.setattr(chat, "read_key", lambda name: None)
     with pytest.raises(RuntimeError, match="setx GROQ_API_KEY"):
         OpenAICompatibleChat.groq()

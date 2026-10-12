@@ -22,6 +22,22 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
+def read_key(name: str) -> Optional[str]:
+    """An API key from the environment -- or, on Windows, from the user
+    environment `setx` writes to, which a terminal opened before the setx
+    (or a tool it started) never sees. The key is never printed."""
+    value = os.environ.get(name)
+    if value or os.name != "nt":
+        return value
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            return winreg.QueryValueEx(key, name)[0] or None
+    except OSError:
+        return None
+
+
 @dataclass
 class ToolCall:
     name: str  # "" when the model answered in prose instead of calling a tool
@@ -64,7 +80,7 @@ class OpenAICompatibleChat:
 
     @classmethod
     def groq(cls, model: str = GROQ_DEFAULT_MODEL, **kwargs) -> "OpenAICompatibleChat":
-        key = os.environ.get("GROQ_API_KEY")
+        key = read_key("GROQ_API_KEY")
         if not key:
             raise RuntimeError(
                 "GROQ_API_KEY is not set. Make a free key at console.groq.com, then in PowerShell run\n"
