@@ -303,3 +303,18 @@ Full eval finished in 4.9 h on one T4 (`ad1446a`). Adapter chosen on dev only (2
 ## 2026-10-12 — ScreenSpot, decided before any number
 
 Next Kaggle job: the public benchmark. ScreenSpot (SeeClick, 2024): 1,272 human-written instructions on iOS/Android, macOS/Windows and four websites; checked on the real parquet (the repo moved to bevaya/ScreenSpot, the old name redirects): bbox is normalized [x1, y1, x2, y2]. Fixed before running: the adapter is the dev-chosen `step-01179` (read from `eval/selection.json`, nothing re-chosen on ScreenSpot); instructions verbatim (same shape as our prompts, "Select Nine" vs "close"); images above the training pixel budget (1568x882) scaled down, aspect kept, never up; same prediction/parsing/hit rule as the v3 ablation; both arms see identical pixels. The notebook stops itself if the fine-tuned model's first 20 answers don't parse. Dry-run on CPU with real ScreenSpot images (incl. a 1170x2532 iPhone shot) and a resumed second session: identical reports, nothing rescored.
+
+## 2026-10-12 (afternoon) — ScreenSpot: +46.6 points, and the biggest gain is on phones
+
+Full run, 2.1 h, adapter `step-01179`, all 1,272 examples. Click accuracy:
+
+| arm | mob/text | mob/icon | desk/text | desk/icon | web/text | web/icon | 6-cell avg | per-example |
+|---|---|---|---|---|---|---|---|---|
+| zero-shot | 16.1 | 7.0 | 26.3 | 9.3 | 25.7 | 19.9 | 17.4 | 17.6 |
+| fine-tuned | 82.4 | 57.6 | 69.6 | 40.0 | 75.7 | 46.1 | **61.9** | 64.2 |
+
+Paired, fine-tuned minus zero-shot (95% CI): mobile +59.2 [54.6, 63.5] (n=502), desktop +38.0 [32.3, 43.4] (n=334), web +38.8 [33.3, 44.3] (n=436), overall +46.6 [43.6, 49.7].
+
+Papers report the plain mean of the six cells, so **61.9** is the comparable figure. For orientation only (each paper has its own prompts, resolution and parsing): SeeClick (9.6B, ~1M examples) 53.4; ShowUI-2B (same Qwen2-VL-2B base, 256K examples) 75.1; the ShowUI paper measured zero-shot Qwen2-VL-2B at 9.3, below our 17.4 -- our box-center parsing is, if anything, generous to the baseline, so the gain is not an artifact of an under-measured zero-shot.
+
+Read: trained only on 10 Windows apps (~1.5k examples), the adapter improved every platform, phones most (12.0 -> 71.1) -- what it learned transfers beyond Windows. Text targets beat icons everywhere (82/58, 70/40, 76/46): finding written labels transferred better than knowing what icons mean. Desktop icons are weakest (40.0) -- ScreenSpot's Windows shots are 960x540 and were not upscaled; a hypothesis, untested. Caveats: ScreenSpot v1 has known label noise (v2 exists); one training run; cross-paper numbers are approximate.
