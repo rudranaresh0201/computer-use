@@ -459,3 +459,17 @@ did not understand what was asked, which no tree snap can fix.
 Target size dominates on unseen apps: by quartile of box area, hit rate 15% (smallest) / 40% / 65% / 65%. Small
 targets (toolbar icons, tree-view arrows) are where the grounder is weakest -- and where UIA names are often
 missing too. Worth a figure.
+
+## 2026-10-13 -- ScreenSpot-v2: the result holds on the corrected benchmark
+
+Last GPU run (`phase3_final_kaggle`, pinned c089d74, 2.4 h; parts guard_dev + ScreenSpot-v2, Test C waits for
+labels). ScreenSpot-v2 = the same 1,272 instructions with mislabeled boxes fixed (OS-Atlas authors).
+
+| | mobile text | mobile icon | desktop text | desktop icon | web text | web icon | 6-cell avg | per example |
+|---|---|---|---|---|---|---|---|---|
+| zero-shot | 16.6 | 10.9 | 28.4 | 10.7 | 23.5 | 25.1 | 19.2 | 19.4 |
+| fine-tuned | 83.1 | 55.9 | 73.2 | 40.0 | 75.2 | 49.3 | **62.8** | **65.5** |
+
+Fine-tuned − zero-shot +46.1 [42.9, 49.1] (mobile +57.5, desktop +38.3, web +38.9). v1 was 61.9 / 64.2, so the
+corrected labels move us up ~1 point: the gain was not an artefact of v1's label noise. Icons remain the weak half
+on every platform (desktop icons 40.0).
