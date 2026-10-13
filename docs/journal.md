@@ -473,3 +473,27 @@ labels). ScreenSpot-v2 = the same 1,272 instructions with mislabeled boxes fixed
 Fine-tuned − zero-shot +46.1 [42.9, 49.1] (mobile +57.5, desktop +38.3, web +38.9). v1 was 61.9 / 64.2, so the
 corrected labels move us up ~1 point: the gain was not an artefact of v1's label noise. Icons remain the weak half
 on every platform (desktop icons 40.0).
+
+## 2026-10-13 -- The better guard: chosen on dev, tested once -- llm_named 85.2
+
+Candidates and the selection rule frozen in `eval/guards.py` (1cc4d26) before any dev answer existed. Dev = 300
+new sandbox items (pages 100-159): the grounder's answers from the last GPU run, the LLM's from Groq.
+
+Dev means: vision 63.3, tree_llm 58.7, llm_guarded 83.3, llm_named / llm_agree / llm_snap 84.3 (identical on dev:
+whenever the LLM picked a nameless element, the grounder's point never landed inside it, and snapping never moved
+a hit). Rule: within 1 point of the best, the simplest -> **llm_named** (take the LLM's pick only if that element
+has a name; NONE or a nameless pick -> vision).
+
+Test, scored once (same 250 items as llm_guarded):
+
+| arm | C1 | C2 | C3 | C4 | C5 | mean |
+|---|---|---|---|---|---|---|
+| vision | 98 | 38 | 28 | 100 | 68 | 66.4 |
+| tree_llm | 88 | 2 | 88 | 0 | 100 | 55.6 |
+| llm_guarded | 92 | 32 | 92 | 100 | 100 | 83.2 |
+| **llm_named** | 94 | **38** | 94 | 100 | 100 | **85.2** |
+
+llm_named − vision +18.8 [15.2, 22.4]; − llm_guarded +2.0 [0.4, 4.0] (pages resampled). The flaw is gone: on
+unnamed icons it now equals vision (38) instead of losing 6 to it, and it is never below vision on any condition.
+Left over: C1 94 (LLM slips on one-word instructions) and, on dev only, C4 96.7 -- twice the LLM named a *named*
+element for a canvas target. Next: confirm on Test C (real blind targets).
