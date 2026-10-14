@@ -14,6 +14,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 APPS = {
@@ -49,31 +50,27 @@ def open_app(name: str, wait: float = 20.0):
     raise RuntimeError(f"{name} did not open a window with {title!r} in its title within {wait:.0f}s")
 
 
-def main(goal: str, app: str, model: str, max_steps: int) -> int:
+def run_task(
+    goal: str,
+    app: str,
+    model: str,
+    max_steps: int,
+    on_step: Callable[[str, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> dict:
+    """One agent run, no printing: open the app, loop perceive/decide/act,
+    and report how it ended. Both the terminal (main) and the app's sidecar
+    (sidecar.py) call this. Raises RuntimeError if the brain can't start
+    (no GROQ_API_KEY) or the app never opens."""
     from .action.controller import ActionController
     from .brain.chat import OpenAICompatibleChat
     from .brain.llm_desktop import LLMDesktopBrain
     from .orchestrator.graph import build_graph
     from .safety import ActionLogger, SafetyConfig, SafetyGuard
 
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8", errors="replace")
-    try:
-        chat = OpenAICompatibleChat.groq(model=model)
-    except RuntimeError as e:
-        print(e)
-        return 2
-
-    print(f"goal:  {goal}\napp:   {app}\nbrain: {chat.name} (Groq)\n(kill switch: move the mouse into a screen corner)\n")
+    chat = OpenAICompatibleChat.groq(model=model)
     _, title = open_app(app)
-    count = [0]
-
-    def show(label: str, note: str) -> None:
-        count[0] += 1
-        print(f"{count[0]:>3}. {label}" + (f"\n     {note}" if note else ""))
-
-    brain = LLMDesktopBrain(chat, title, foreground_title, on_step=show)
+    brain = LLMDesktopBrain(chat, title, foreground_title, on_step=on_step, should_stop=should_stop)
     controller = ActionController(SafetyGuard(SafetyConfig(), ActionLogger(Path("logs/desktop_run.jsonl"))))
     graph = build_graph(brain, controller)
     start = time.time()
@@ -83,16 +80,36 @@ def main(goal: str, app: str, model: str, max_steps: int) -> int:
         config={"recursion_limit": 2 * max_steps + 5},
     )
     last = state["action_history"][-1] if state["action_history"] else None
-    print()
     if state["done"] and last is not None and not (last.text or "").startswith("STOPPED"):
-        print(f"DONE: {last.text}")
-        code = 0
+        status, answer = "done", last.text or ""
     elif last is not None and (last.text or "").startswith("STOPPED"):
-        print(last.text)
-        code = 1
+        status, answer = "stopped", last.text or ""
     else:
-        print(f"STOPPED after {len(state['action_history'])} actions "
-              f"({state['consecutive_failures']} failures in a row)")
-        code = 1
-    print(f"{len(state['action_history'])} actions, {brain.tokens / 1000:.1f}k tokens, {time.time() - start:.0f}s")
-    return code
+        status = "stopped"
+        answer = (f"STOPPED after {len(state['action_history'])} actions "
+                  f"({state['consecutive_failures']} failures in a row)")
+    return {"status": status, "answer": answer, "actions": len(state["action_history"]),
+            "tokens": brain.tokens, "seconds": round(time.time() - start, 1), "brain": chat.name}
+
+
+def main(goal: str, app: str, model: str, max_steps: int) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+    print(f"goal:  {goal}\napp:   {app}\nbrain: {model} (Groq)\n(kill switch: move the mouse into a screen corner)\n")
+    count = [0]
+
+    def show(label: str, note: str) -> None:
+        count[0] += 1
+        print(f"{count[0]:>3}. {label}" + (f"\n     {note}" if note else ""))
+
+    try:
+        result = run_task(goal, app, model, max_steps, on_step=show)
+    except RuntimeError as e:
+        print(e)
+        return 2
+    print()
+    print(f"DONE: {result['answer']}" if result["status"] == "done" else result["answer"])
+    print(f"{result['actions']} actions, {result['tokens'] / 1000:.1f}k tokens, {result['seconds']:.0f}s")
+    return 0 if result["status"] == "done" else 1

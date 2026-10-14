@@ -122,6 +122,12 @@ def main() -> None:
     desktop_parser.add_argument("--model", default="openai/gpt-oss-20b", help="Groq model id")
     desktop_parser.add_argument("--max-steps", type=int, default=20)
 
+    sidecar_parser = subparsers.add_parser(
+        "sidecar", help="The desktop agent as a child process: JSON-RPC over stdin/stdout, for the app window"
+    )
+    sidecar_parser.add_argument("--model", default="openai/gpt-oss-20b", help="Groq model id")
+    sidecar_parser.add_argument("--max-steps", type=int, default=20)
+
     capture_parser = subparsers.add_parser(
         "capture", help="Save a screenshot + the full UIA tree of the app you click on (Tests C/D)"
     )
@@ -154,6 +160,10 @@ def main() -> None:
         from .desktop_run import main as desktop_main
 
         sys.exit(desktop_main(args.goal, args.app, args.model, args.max_steps))
+    elif args.command == "sidecar":
+        from .sidecar import main as sidecar_main
+
+        sidecar_main(args.model, args.max_steps)
     elif args.command == "web-run":
         from .web.run import DEFAULT_MODEL
         from .web.run import main as web_run_main

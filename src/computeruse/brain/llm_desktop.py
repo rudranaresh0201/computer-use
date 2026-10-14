@@ -91,16 +91,20 @@ class LLMDesktopBrain(Brain):
         window_title: str,
         foreground_title: Callable[[], str],
         on_step: Callable[[str, str], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         self.chat = chat
         self.window_title = window_title.lower()
         self._foreground_title = foreground_title
         self._on_step = on_step or (lambda action, note: None)
+        self._should_stop = should_stop or (lambda: False)
         self.history: list[str] = []
         self.tokens = 0
 
     def decide(self, goal: str, screenshot: Screenshot, ui_elements: list[UIElement],
                action_history: list[Action]) -> Action:
+        if self._should_stop():
+            return self._finish("STOPPED: stopped by the person")
         title = self._foreground_title()
         if self.window_title not in title.lower():
             return self._finish(f"STOPPED: the foreground window is {title!r}, not the app this run started on")

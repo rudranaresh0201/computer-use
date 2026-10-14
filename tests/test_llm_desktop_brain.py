@@ -46,3 +46,10 @@ def test_type_key_and_done():
 def test_focus_leaving_the_app_ends_the_run_before_any_click():
     action = brain([("click", {"id": "u2"})], title="Windows PowerShell").decide("x", None, CALC, [])
     assert action.type == ActionType.DONE and action.text.startswith("STOPPED")
+
+
+def test_stop_from_the_window_ends_the_run_before_the_model_is_asked():
+    b = LLMDesktopBrain(ScriptedChat([("click", {"id": "u2"})]), "calculator",
+                        foreground_title=lambda: "Calculator", should_stop=lambda: True)
+    action = b.decide("x", None, CALC, [])
+    assert action.type == ActionType.DONE and action.text == "STOPPED: stopped by the person"
