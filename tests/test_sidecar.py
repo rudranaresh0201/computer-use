@@ -5,7 +5,7 @@ import threading
 from computeruse.sidecar import Sidecar, step_kind
 
 
-def fake_runner(goal, app, on_step, should_stop):
+def fake_runner(goal, app, on_step, should_stop, **_):
     on_step('click u3 Button "Seven"', "")
     on_step("click 'u99'", "refused: that id is not in the current list")
     on_step("done", "7")
@@ -54,7 +54,7 @@ def test_a_notification_gets_no_reply():
 def test_stop_reaches_a_running_agent_and_a_second_run_is_refused_while_busy():
     started, seen_stop = threading.Event(), threading.Event()
 
-    def slow_runner(goal, app, on_step, should_stop):
+    def slow_runner(goal, app, on_step, should_stop, **_):
         started.set()
         while not should_stop():
             pass
@@ -73,7 +73,7 @@ def test_stop_reaches_a_running_agent_and_a_second_run_is_refused_while_busy():
 
 
 def test_a_crash_inside_the_agent_still_ends_with_finished():
-    def broken(goal, app, on_step, should_stop):
+    def broken(goal, app, on_step, should_stop, **_):
         raise RuntimeError("calc.exe did not open")
 
     s, out = sidecar(broken)
@@ -87,7 +87,7 @@ def test_a_crash_inside_the_agent_still_ends_with_finished():
 def test_closing_stdin_stops_the_run():
     started = threading.Event()
 
-    def runner(goal, app, on_step, should_stop):
+    def runner(goal, app, on_step, should_stop, **_):
         started.set()
         while not should_stop():
             pass
@@ -102,3 +102,13 @@ def test_closing_stdin_stops_the_run():
 def test_step_kind():
     assert step_kind("type '7'", "") == "type" and step_kind("key ctrl+s", "") == "key"
     assert step_kind("(no action)", "the reply was not a valid tool call") == "noop"
+
+
+def test_demo_runner_streams_the_scripted_steps_and_honours_stop():
+    from computeruse.sidecar import DEMO_STEPS, demo_runner
+
+    seen = []
+    result = demo_runner("anything", "calculator", lambda l, n: seen.append(l), lambda: False, pause=0)
+    assert len(seen) == len(DEMO_STEPS) and result["status"] == "done" and "5535" in result["answer"]
+    stopped = demo_runner("x", "calculator", lambda l, n: None, lambda: True, pause=0)
+    assert stopped["status"] == "stopped"

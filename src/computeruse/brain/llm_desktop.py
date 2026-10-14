@@ -38,6 +38,8 @@ You operate a Windows application for a person, one action at a time.
 Each turn you see the goal, what you did so far, and the elements of the app window from its accessibility
 tree, one per line as [id] Role "name". Call exactly one tool.
 - click an element by its id; type text into whatever has focus (click a text field first); key for shortcuts.
+- Prefer the keyboard when the app takes typed input: one type action beats many clicks
+  (Calculator: type 123*45= ; then read the display).
 - Only use ids from the current list; the list changes after every action.
 - When the goal is achieved, or you can read the answer on screen, call done with the answer.
 - If the goal cannot be done in this app, call done and say why."""
@@ -60,6 +62,13 @@ TOOLS = [
                                       "parameters": {"type": "object", "properties": {"answer": {"type": "string"}},
                                                      "required": ["answer"]}}},
 ]
+CHECK_TOOL = {"type": "function", "function": {
+    "name": "check", "description": "Mark a plan step finished, once the window shows it is done.",
+    "parameters": {"type": "object", "properties": {"step": {"type": "integer"}}, "required": ["step"]}}}
+PLAN_PROMPT = """
+There is a plan; when the window shows a step is finished, call check with its number, then carry on.
+Checking costs no action. Mark every step before you call done."""
+MAX_CHECKS_PER_TURN = 3
 
 
 def render_elements(elements: list[UIElement]) -> tuple[str, dict[str, UIElement]]:
@@ -92,12 +101,17 @@ class LLMDesktopBrain(Brain):
         foreground_title: Callable[[], str],
         on_step: Callable[[str, str], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
+        plan: list[str] | None = None,
+        on_check: Callable[[int], None] | None = None,
     ) -> None:
         self.chat = chat
         self.window_title = window_title.lower()
         self._foreground_title = foreground_title
         self._on_step = on_step or (lambda action, note: None)
         self._should_stop = should_stop or (lambda: False)
+        self.plan = list(plan or [])
+        self.checked: set[int] = set()
+        self._on_check = on_check or (lambda step: None)
         self.history: list[str] = []
         self.tokens = 0
 
@@ -110,14 +124,37 @@ class LLMDesktopBrain(Brain):
             return self._finish(f"STOPPED: the foreground window is {title!r}, not the app this run started on")
 
         screen, ids = render_elements(ui_elements)
-        done_so_far = "\n".join(self.history[-HISTORY_STEPS:]) or "(nothing yet)"
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Goal: {goal}\n\nSo far:\n{done_so_far}\n\nWindow {title!r}:\n{screen}"},
-        ]
-        call = self.chat.next_call(messages, TOOLS)
-        self.tokens += sum(call.usage.values())
-        return self._to_action(call, ids)
+        tools = TOOLS + [CHECK_TOOL] if self.plan else TOOLS
+        system = SYSTEM_PROMPT + PLAN_PROMPT if self.plan else SYSTEM_PROMPT
+        for _ in range(MAX_CHECKS_PER_TURN + 1):
+            done_so_far = "\n".join(self.history[-HISTORY_STEPS:]) or "(nothing yet)"
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Goal: {goal}\n{self._plan_text()}\nSo far:\n{done_so_far}\n\n"
+                                            f"Window {title!r}:\n{screen}"},
+            ]
+            call = self.chat.next_call(messages, tools)
+            self.tokens += sum(call.usage.values())
+            if call.name != "check" or not self.plan:
+                return self._to_action(call, ids)
+            self._check(call.arguments.get("step"))  # no mouse, no screen change: ask again, same turn
+        return self._noop("check", "too many checks in one turn; take an action next")
+
+    def _plan_text(self) -> str:
+        if not self.plan:
+            return ""
+        lines = [f"  {'[x]' if i in self.checked else '[ ]'} {i}. {step}" for i, step in enumerate(self.plan, 1)]
+        return "\nPlan:\n" + "\n".join(lines) + "\n"
+
+    def _check(self, step) -> None:
+        try:
+            n = int(step)
+        except (TypeError, ValueError):
+            n = 0
+        if 1 <= n <= len(self.plan) and n not in self.checked:
+            self.checked.add(n)
+            self.history.append(f"{len(self.history) + 1}. checked plan step {n}")
+            self._on_check(n)
 
     def _to_action(self, call: ToolCall, ids: dict[str, UIElement]) -> Action:
         args: dict[str, Any] = call.arguments

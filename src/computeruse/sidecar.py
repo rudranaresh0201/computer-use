@@ -13,6 +13,8 @@ framing as an MCP stdio server:
 
 Methods: ping, apps, run, stop. A run happens on a thread so `stop` can be
 read while it works; the brain checks the stop flag before every decision.
+`run` without an app is planned first (planner.py): a `plan` notification
+carries the app and the checklist, and `check` notifications tick it.
 stdout carries protocol messages only: anything else that prints (a library,
 a stray debug line) is sent to stderr, or the window would read it as a
 broken message.
@@ -26,8 +28,10 @@ import threading
 from collections.abc import Callable
 from typing import Any, TextIO
 
-# runner(goal, app, on_step, should_stop) -> {"status", "answer", ...}
-Runner = Callable[[str, str, Callable[[str, str], None], Callable[[], bool]], dict]
+# runner(goal, app, on_step, should_stop, plan=[...], on_check=fn) -> {"status", "answer", ...}
+Runner = Callable[..., dict]
+# planner(command, app or None) -> {"app": str | None, "goal": str, "steps": [str]}
+Planner = Callable[[str, "str | None"], dict]
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, BUSY = -32700, -32600, -32601, -32602, -32000
 
@@ -44,8 +48,9 @@ def step_kind(label: str, note: str) -> str:
 
 
 class Sidecar:
-    def __init__(self, runner: Runner, apps: list[str], out: TextIO) -> None:
+    def __init__(self, runner: Runner, apps: list[str], out: TextIO, planner: Planner | None = None) -> None:
         self._runner = runner
+        self._planner = planner
         self._apps = apps
         self._out = out
         self._write_lock = threading.Lock()
@@ -100,7 +105,9 @@ class Sidecar:
             goal, app = params.get("goal"), params.get("app")
             if not isinstance(goal, str) or not goal.strip():
                 raise _RpcError(INVALID_PARAMS, "run needs a non-empty goal")
-            if app not in self._apps:
+            if app is None and self._planner is None:
+                raise _RpcError(INVALID_PARAMS, "run needs an app (this sidecar has no planner)")
+            if app is not None and app not in self._apps:
                 raise _RpcError(INVALID_PARAMS, f"app must be one of {self._apps}")
             if self.running:
                 raise _RpcError(BUSY, "a run is already in progress")
@@ -109,16 +116,29 @@ class Sidecar:
             return {"started": True}, self._thread.start
         raise _RpcError(METHOD_NOT_FOUND, f"unknown method {method!r}")
 
-    def _run(self, goal: str, app: str) -> None:
+    def _run(self, goal: str, app: str | None) -> None:
         count = [0]
 
         def on_step(label: str, note: str) -> None:
             count[0] += 1
             self.notify("step", {"n": count[0], "kind": step_kind(label, note), "label": label, "note": note})
 
-        self.notify("started", {"goal": goal, "app": app})
+        def on_check(step: int) -> None:
+            self.notify("check", {"step": step})
+
         try:
-            result = self._runner(goal, app, on_step, self._stop.is_set)
+            steps: list[str] = []
+            if self._planner is not None:
+                self.notify("planning", {"goal": goal})
+                plan = self._planner(goal, app)
+                if not plan.get("app"):
+                    self.notify("finished", {"status": "stopped", "actions": 0,
+                                             "answer": f"STOPPED: {plan.get('goal') or 'no app fits'}"})
+                    return
+                goal, app, steps = plan.get("goal") or goal, plan["app"], list(plan.get("steps") or [])
+                self.notify("plan", {"app": app, "goal": goal, "steps": steps})
+            self.notify("started", {"goal": goal, "app": app})
+            result = self._runner(goal, app, on_step, self._stop.is_set, plan=steps, on_check=on_check)
         except Exception as e:  # noqa: BLE001 -- any failure must reach the window as an ending, not silence
             result = {"status": "error", "answer": f"{type(e).__name__}: {e}"}
         self.notify("finished", result)
@@ -136,14 +156,52 @@ class Sidecar:
         self.wait()
 
 
+DEMO_PLAN = {"app": "calculator", "goal": "Compute 123 x 45 in Calculator and read the result",
+             "steps": ["Enter 123", "Multiply by 45", "Read the result"]}
+DEMO_STEPS = [  # (label, note, the plan step this action finishes, 0 = none)
+    ('click u57 Button "One"', "", 0), ('click u58 Button "Two"', "", 0), ('click u59 Button "Three"', "", 1),
+    ('click u41 Button "Multiply by"', "", 0), ('click u60 Button "Four"', "", 0), ('click u61 Button "Five"', "", 0),
+    ('click u53 Button "Equals"', "", 2), ("done", "123 x 45 = 5535", 3),
+]
+
+
+def demo_planner(command: str, app: str | None) -> dict:
+    return dict(DEMO_PLAN)
+
+
+def demo_runner(goal: str, app: str, on_step: Callable[[str, str], None], should_stop: Callable[[], bool],
+                plan: list[str] | None = None, on_check: Callable[[int], None] | None = None,
+                pause: float = 1.2) -> dict:
+    """A scripted run with the real message shapes and no mouse or keyboard: for building
+    the window and for showing it off. Same answer whatever the goal says."""
+    import time
+
+    start = time.time()
+    for n, (label, note, finishes) in enumerate(DEMO_STEPS, 1):
+        time.sleep(pause)
+        if should_stop():
+            on_step("done", "STOPPED: stopped by the person")
+            return {"status": "stopped", "answer": "STOPPED: stopped by the person", "actions": n,
+                    "tokens": 0, "seconds": round(time.time() - start, 1), "brain": "demo"}
+        if finishes and on_check is not None and label == "done":
+            on_check(finishes)  # the brain ticks the last step, then says done
+        on_step(label, note)
+        if finishes and on_check is not None and label != "done":
+            on_check(finishes)
+    return {"status": "done", "answer": DEMO_STEPS[-1][1], "actions": len(DEMO_STEPS), "tokens": 0,
+            "seconds": round(time.time() - start, 1), "brain": "demo"}
+
+
 class _RpcError(Exception):
     def __init__(self, code: int, message: str) -> None:
         super().__init__(message)
         self.code = code
 
 
-def main(model: str, max_steps: int) -> None:
+def main(model: str, max_steps: int, demo: bool = False) -> None:
+    from .brain.chat import OpenAICompatibleChat
     from .desktop_run import APPS, run_task
+    from .planner import make_plan
 
     protocol = sys.stdout
     sys.stdout = sys.stderr  # every stray print() now lands on stderr, not in the protocol stream
@@ -151,8 +209,18 @@ def main(model: str, max_steps: int) -> None:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
 
-    def runner(goal: str, app: str, on_step: Callable[[str, str], None], should_stop: Callable[[], bool]) -> dict:
-        return run_task(goal, app, model, max_steps, on_step=on_step, should_stop=should_stop)
+    def runner(goal: str, app: str, on_step: Callable[[str, str], None], should_stop: Callable[[], bool],
+               plan: list[str] | None = None, on_check: Callable[[int], None] | None = None) -> dict:
+        if demo:
+            return demo_runner(goal, app, on_step, should_stop, plan=plan, on_check=on_check)
+        return run_task(goal, app, model, max_steps, on_step=on_step, should_stop=should_stop,
+                        plan=plan, on_check=on_check)
 
-    print(f"sidecar ready (brain: {model}); reading JSON-RPC on stdin", file=sys.stderr)
-    Sidecar(runner, list(APPS), protocol).serve(sys.stdin)
+    def planner(command: str, app: str | None) -> dict:
+        if demo:
+            return demo_planner(command, app)
+        p = make_plan(OpenAICompatibleChat.groq(model=model), command, list(APPS), app)
+        return {"app": p.app, "goal": p.goal, "steps": p.steps}
+
+    print(f"sidecar ready (brain: {'demo, no mouse' if demo else model}); reading JSON-RPC on stdin", file=sys.stderr)
+    Sidecar(runner, list(APPS), protocol, planner=planner).serve(sys.stdin)

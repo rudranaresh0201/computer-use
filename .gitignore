@@ -27,3 +27,6 @@ data/gui_grounding/_pre_v2_backup_*/
 # quarantine_bad_screenshots.py's safety copies -- labels/ledger/images of
 # screenshots removed from the dataset. Local recovery only, never source.
 data/gui_grounding/_quarantine_backup_*/
+
+# the app window (app/): npm installs, never source
+app/node_modules/

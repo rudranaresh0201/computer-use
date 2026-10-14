@@ -57,6 +57,8 @@ def run_task(
     max_steps: int,
     on_step: Callable[[str, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    plan: list[str] | None = None,
+    on_check: Callable[[int], None] | None = None,
 ) -> dict:
     """One agent run, no printing: open the app, loop perceive/decide/act,
     and report how it ended. Both the terminal (main) and the app's sidecar
@@ -70,7 +72,8 @@ def run_task(
 
     chat = OpenAICompatibleChat.groq(model=model)
     _, title = open_app(app)
-    brain = LLMDesktopBrain(chat, title, foreground_title, on_step=on_step, should_stop=should_stop)
+    brain = LLMDesktopBrain(chat, title, foreground_title, on_step=on_step, should_stop=should_stop,
+                           plan=plan, on_check=on_check)
     controller = ActionController(SafetyGuard(SafetyConfig(), ActionLogger(Path("logs/desktop_run.jsonl"))))
     graph = build_graph(brain, controller)
     start = time.time()
