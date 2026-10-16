@@ -48,8 +48,11 @@ def step_kind(label: str, note: str) -> str:
 
 
 class Sidecar:
-    def __init__(self, runner: Runner, apps: list[str], out: TextIO, planner: Planner | None = None) -> None:
+    def __init__(self, runner: Runner, apps: list[str], out: TextIO, planner: Planner | None = None,
+                 brain: str = "", app_optional: bool = False) -> None:
         self._runner = runner
+        self._brain = brain
+        self._app_optional = app_optional  # the brain picks the app itself (claude)
         self._planner = planner
         self._apps = apps
         self._out = out
@@ -95,7 +98,7 @@ class Sidecar:
     def _dispatch(self, method: str, params: dict[str, Any]) -> tuple[dict, Callable[[], None] | None]:
         """The reply for one request, plus anything to start once it is sent."""
         if method == "ping":
-            return {"pong": True}, None
+            return {"pong": True, "brain": self._brain}, None
         if method == "apps":
             return {"apps": self._apps}, None
         if method == "stop":
@@ -105,7 +108,7 @@ class Sidecar:
             goal, app = params.get("goal"), params.get("app")
             if not isinstance(goal, str) or not goal.strip():
                 raise _RpcError(INVALID_PARAMS, "run needs a non-empty goal")
-            if app is None and self._planner is None:
+            if app is None and self._planner is None and not self._app_optional:
                 raise _RpcError(INVALID_PARAMS, "run needs an app (this sidecar has no planner)")
             if app is not None and app not in self._apps:
                 raise _RpcError(INVALID_PARAMS, f"app must be one of {self._apps}")
@@ -137,7 +140,10 @@ class Sidecar:
                     return
                 goal, app, steps = plan.get("goal") or goal, plan["app"], list(plan.get("steps") or [])
                 self.notify("plan", {"app": app, "goal": goal, "steps": steps})
-            self.notify("started", {"goal": goal, "app": app})
+            if self._planner is None and app is None:
+                self.notify("planning", {"goal": goal})  # the brain plans and opens the app itself
+            else:
+                self.notify("started", {"goal": goal, "app": app})
             result = self._runner(goal, app, on_step, self._stop.is_set, plan=steps, on_check=on_check)
         except Exception as e:  # noqa: BLE001 -- any failure must reach the window as an ending, not silence
             result = {"status": "error", "answer": f"{type(e).__name__}: {e}"}
@@ -279,7 +285,7 @@ class _RpcError(Exception):
         self.code = code
 
 
-def main(model: str, max_steps: int, demo: bool = False) -> None:
+def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") -> None:
     from .brain.chat import OpenAICompatibleChat
     from .desktop_run import APPS, run_task
     from .planner import make_plan
@@ -298,6 +304,10 @@ def main(model: str, max_steps: int, demo: bool = False) -> None:
             shots = sorted(Path("runs/realtest").glob("paint_*.png"))  # a real Paint screenshot, if captured
             return showcase_runner(goal, app, on_step, should_stop, plan=plan, on_check=on_check,
                                    emit=sidecar.notify, screen=str(shots[-1]) if shots else None)
+        if brain == "claude":
+            from .claude_brain import run_claude
+
+            return run_claude(goal, app, sidecar.notify, should_stop)
         return run_task(goal, app, model, max_steps, on_step=on_step, should_stop=should_stop,
                         plan=plan, on_check=on_check)
 
@@ -307,6 +317,8 @@ def main(model: str, max_steps: int, demo: bool = False) -> None:
         p = make_plan(OpenAICompatibleChat.groq(model=model), command, list(APPS), app)
         return {"app": p.app, "goal": p.goal, "steps": p.steps}
 
-    print(f"sidecar ready (brain: {'demo, no mouse' if demo else model}); reading JSON-RPC on stdin", file=sys.stderr)
-    sidecar = Sidecar(runner, list(APPS), protocol, planner=planner)
+    label = "demo" if demo else "claude" if brain == "claude" else f"groq · {model}"
+    print(f"sidecar ready (brain: {label}); reading JSON-RPC on stdin", file=sys.stderr)
+    claude = brain == "claude" and not demo
+    sidecar = Sidecar(runner, list(APPS), protocol, planner=None if claude else planner, brain=label, app_optional=claude)
     sidecar.serve(sys.stdin)

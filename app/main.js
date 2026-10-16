@@ -31,7 +31,8 @@ function toPage(msg) {
 }
 
 function startSidecar() {
-  sidecar = spawn(SIDECAR, DEMO ? ['sidecar', '--demo'] : ['sidecar'], { cwd: REPO, windowsHide: true });
+  const brain = process.env.CU_BRAIN || 'claude'; // claude: Claude Code drives the MCP server; groq: the free fallback
+  sidecar = spawn(SIDECAR, DEMO ? ['sidecar', '--demo'] : ['sidecar', '--brain', brain], { cwd: REPO, windowsHide: true });
   readline.createInterface({ input: sidecar.stdout }).on('line', (line) => {
     let msg;
     try {

@@ -128,6 +128,10 @@ def main() -> None:
     sidecar_parser.add_argument("--model", default="openai/gpt-oss-20b", help="Groq model id")
     sidecar_parser.add_argument("--max-steps", type=int, default=20)
     sidecar_parser.add_argument("--demo", action="store_true", help="Scripted steps, no mouse or keyboard")
+    sidecar_parser.add_argument("--brain", choices=["claude", "groq"], default="groq",
+                                help="claude: Claude Code drives the MCP server (your subscription); groq: the free fallback")
+
+    subparsers.add_parser("mcp", help="The desktop as an MCP server over stdio, for Claude Code or any MCP host")
 
     capture_parser = subparsers.add_parser(
         "capture", help="Save a screenshot + the full UIA tree of the app you click on (Tests C/D)"
@@ -161,10 +165,14 @@ def main() -> None:
         from .desktop_run import main as desktop_main
 
         sys.exit(desktop_main(args.goal, args.app, args.model, args.max_steps))
+    elif args.command == "mcp":
+        from .mcp_server import main as mcp_main
+
+        mcp_main()
     elif args.command == "sidecar":
         from .sidecar import main as sidecar_main
 
-        sidecar_main(args.model, args.max_steps, demo=args.demo)
+        sidecar_main(args.model, args.max_steps, demo=args.demo, brain=args.brain)
     elif args.command == "web-run":
         from .web.run import DEFAULT_MODEL
         from .web.run import main as web_run_main

@@ -329,7 +329,9 @@ function pickTarget(name) {
 }
 
 (async () => {
-  $('brain-name').textContent = DEMO ? 'demo · scripted, no mouse' : 'live · it moves your mouse';
+  const ping = await window.agent.request('ping');
+  const brain = ping.result?.brain ?? '';
+  $('brain-name').textContent = DEMO ? 'demo · scripted, no mouse' : brain === 'claude' ? 'Claude · via MCP · moves your mouse' : `${brain} · moves your mouse`;
   $('goal').placeholder = EXAMPLES[0];
   let n = 0;
   setInterval(() => { if (!$('goal').value) $('goal').placeholder = EXAMPLES[++n % EXAMPLES.length]; }, 4000);
