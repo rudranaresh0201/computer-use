@@ -192,6 +192,87 @@ def demo_runner(goal: str, app: str, on_step: Callable[[str, str], None], should
             "seconds": round(time.time() - start, 1), "brain": "demo"}
 
 
+SHOWCASE_PLAN = {"app": "paint", "goal": "Draw a house with a sun and a tree in Paint, then save it as house.png",
+                 "steps": ["Pick the rectangle tool", "Draw the house", "Add the roof", "Draw the sun",
+                           "Draw the tree", "Save as house.png"]}
+# (thought, label, kind, channel, (x, y) as fractions of the screen or None, plan step it finishes, receipt)
+SHOWCASE_STEPS = [
+    ("Paint is open. The toolbar is in the accessibility tree, so I can pick the rectangle by name.",
+     'click u112 Button "Rectangle"', "click", "tree", (0.44, 0.09), 1, "tool selected: Rectangle (tree state)"),
+    ("The canvas is a single element to the tree: drawing has to be coordinates. House body first, centred low.",
+     "drag (0.38, 0.52) -> (0.62, 0.82)", "drag", "vision", (0.5, 0.67), 2, "canvas changed in the box drawn"),
+    ("Roof: two lines meeting above the house. The line tool is named too.",
+     'click u109 Button "Line"', "click", "tree", (0.41, 0.09), 0, None),
+    ("Left slope, then right slope.",
+     "drag (0.36, 0.52) -> (0.50, 0.36)", "drag", "vision", (0.43, 0.44), 0, None),
+    ("", "drag (0.50, 0.36) -> (0.64, 0.52)", "drag", "vision", (0.57, 0.44), 3, "roof lines present"),
+    ("The sun: an unnamed icon in the shapes gallery, so the tree can't tell me which one is the oval. Asking the eyes.",
+     'locate "oval shape tool"', "locate", "eyes", (0.47, 0.11), 0, None),
+    ("", "drag (0.76, 0.18) -> (0.88, 0.32)", "drag", "vision", (0.82, 0.25), 4, "circle drawn top right"),
+    ("Tree: a trunk and a round top on the left of the house.",
+     "drag (0.16, 0.62) -> (0.20, 0.82)", "drag", "vision", (0.18, 0.72), 0, None),
+    ("", "drag (0.10, 0.44) -> (0.26, 0.64)", "drag", "vision", (0.18, 0.54), 5, "tree drawn left of the house"),
+    ("Saving: Ctrl+S opens the dialog, the file name box is named.",
+     "key ctrl+s", "key", "api", None, 0, None),
+    ("", 'type u7 Edit "File name" house.png', "type", "tree", (0.42, 0.78), 0, None),
+    ("", "key enter", "key", "api", None, 6, "house.png exists, 48 KB, saved 1 s ago"),
+]
+
+
+def _screen_data_url(path: "str | None", width: int = 960) -> "str | None":
+    """A screenshot as a small JPEG data URL for the window's live-screen panel."""
+    if not path:
+        return None
+    try:
+        import base64
+        import io
+
+        from PIL import Image
+
+        image = Image.open(path).convert("RGB")
+        image.thumbnail((width, width))
+        buf = io.BytesIO()
+        image.save(buf, "JPEG", quality=80)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except OSError:
+        return None
+
+
+def showcase_runner(goal: str, app: str, on_step: Callable[[str, str], None], should_stop: Callable[[], bool],
+                    plan: list[str] | None = None, on_check: Callable[[int], None] | None = None,
+                    emit: Callable[[str, dict], None] | None = None, pause: float = 1.4,
+                    screen: "str | None" = None) -> dict:
+    """The demo the window shows off: every event a real run sends (thoughts, the channel each
+    action used, where it pointed, receipts, the screen), scripted, with no mouse or keyboard."""
+    import time
+
+    emit = emit or (lambda method, params: None)
+    image = _screen_data_url(screen)
+    if image:
+        emit("screen", {"src": image})
+    start = time.time()
+    for n, (thought, label, kind, channel, point, finishes, receipt) in enumerate(SHOWCASE_STEPS, 1):
+        if thought:
+            emit("thought", {"text": thought})
+            time.sleep(pause * 0.8)
+        time.sleep(pause * 0.6)
+        if should_stop():
+            return {"status": "stopped", "answer": "STOPPED: stopped by the person", "actions": n - 1,
+                    "tokens": 0, "seconds": round(time.time() - start, 1), "brain": "demo"}
+        params = {"n": n, "kind": kind, "label": label, "note": "", "channel": channel}
+        if point:
+            params["x"], params["y"] = point
+        emit("step", params)
+        if finishes:
+            if receipt:
+                emit("receipt", {"step": finishes, "verdict": "verified", "summary": receipt})
+            if on_check is not None:
+                on_check(finishes)
+    answer = "Saved house.png: a house with a roof, a sun and a tree"
+    return {"status": "done", "answer": answer, "actions": len(SHOWCASE_STEPS), "tokens": 0,
+            "seconds": round(time.time() - start, 1), "brain": "demo"}
+
+
 class _RpcError(Exception):
     def __init__(self, code: int, message: str) -> None:
         super().__init__(message)
@@ -212,15 +293,20 @@ def main(model: str, max_steps: int, demo: bool = False) -> None:
     def runner(goal: str, app: str, on_step: Callable[[str, str], None], should_stop: Callable[[], bool],
                plan: list[str] | None = None, on_check: Callable[[int], None] | None = None) -> dict:
         if demo:
-            return demo_runner(goal, app, on_step, should_stop, plan=plan, on_check=on_check)
+            from pathlib import Path
+
+            shots = sorted(Path("runs/realtest").glob("paint_*.png"))  # a real Paint screenshot, if captured
+            return showcase_runner(goal, app, on_step, should_stop, plan=plan, on_check=on_check,
+                                   emit=sidecar.notify, screen=str(shots[-1]) if shots else None)
         return run_task(goal, app, model, max_steps, on_step=on_step, should_stop=should_stop,
                         plan=plan, on_check=on_check)
 
     def planner(command: str, app: str | None) -> dict:
         if demo:
-            return demo_planner(command, app)
+            return dict(SHOWCASE_PLAN)
         p = make_plan(OpenAICompatibleChat.groq(model=model), command, list(APPS), app)
         return {"app": p.app, "goal": p.goal, "steps": p.steps}
 
     print(f"sidecar ready (brain: {'demo, no mouse' if demo else model}); reading JSON-RPC on stdin", file=sys.stderr)
-    Sidecar(runner, list(APPS), protocol, planner=planner).serve(sys.stdin)
+    sidecar = Sidecar(runner, list(APPS), protocol, planner=planner)
+    sidecar.serve(sys.stdin)

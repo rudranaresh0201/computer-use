@@ -91,6 +91,7 @@ function createWindow() {
   });
   const query = { mode: DEMO ? 'demo' : 'live' };
   if (process.env.CU_AUTORUN) query.autorun = process.env.CU_AUTORUN;
+  if (process.env.CU_SKY) query.sky = process.env.CU_SKY; // dev knob: which part of the room is behind the desk
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query });
 
   if (SNAPSHOT) {

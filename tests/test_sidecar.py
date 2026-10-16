@@ -112,3 +112,17 @@ def test_demo_runner_streams_the_scripted_steps_and_honours_stop():
     assert len(seen) == len(DEMO_STEPS) and result["status"] == "done" and "5535" in result["answer"]
     stopped = demo_runner("x", "calculator", lambda l, n: None, lambda: True, pause=0)
     assert stopped["status"] == "stopped"
+
+
+def test_showcase_emits_thoughts_channels_receipts_and_ticks_every_plan_step():
+    from computeruse.sidecar import SHOWCASE_PLAN, showcase_runner
+
+    events, checks = [], []
+    result = showcase_runner("g", "paint", lambda l, n: None, lambda: False, on_check=checks.append,
+                             emit=lambda m, p: events.append((m, p)), pause=0)
+    steps = [p for m, p in events if m == "step"]
+    assert result["status"] == "done" and checks == list(range(1, len(SHOWCASE_PLAN["steps"]) + 1))
+    assert {p["channel"] for p in steps} == {"tree", "vision", "eyes", "api"}
+    assert all(0 <= p["x"] <= 1 and 0 <= p["y"] <= 1 for p in steps if "x" in p)
+    assert sum(m == "receipt" for m, _ in events) >= len(checks) - 1 and any(m == "thought" for m, _ in events)
+    assert showcase_runner("g", "paint", lambda l, n: None, lambda: True, pause=0)["status"] == "stopped"

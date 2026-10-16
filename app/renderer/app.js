@@ -1,104 +1,265 @@
 // The page: turns the agent's notifications into what you see.
 //
-//   planning -> status "planning", the robot thinks
-//   plan     -> the checklist on the left (the planner's checkpoints)
-//   started  -> robot waves, turns to the monitor, status "working"
-//   step     -> a line on the monitor; the robot acts out step.kind
-//   check    -> a checkpoint ticks; the robot nods
-//   finished -> answer card; thumbs-up + dance, or "no", or a fall
+//   planning -> status "planning", the goal, the robot thinks
+//   plan     -> the timeline (the planner's checkpoints)
+//   started  -> status "working", the clock starts, the robot walks to the desk and sits
+//   thought  -> the reasoning panel types it out; the robot tilts its head
+//   screen   -> the screen it sees, on the panel and on the 3D monitor
+//   step     -> an action row under the current checkpoint, badged by the channel that found
+//               its target (api / tree / eyes / vision); the marker jumps to where it pointed
+//   receipt  -> the proof a checkpoint really happened (verified or contradicted)
+//   check    -> the checkpoint is done; the robot nods
+//   finished -> the result card; the robot stands up: thumbs up, or "no"
 //
-// Unticked checkpoints stay unticked at the end: the list shows what the
-// agent claimed, not what we hoped.
-//
-// window.agent comes from preload.js: request(method, params) and onEvent(cb).
+// Unticked checkpoints stay unticked at the end: the timeline shows what was verified,
+// not what we hoped. window.agent comes from preload.js: request(method, params) and onEvent(cb).
 
-import { Room } from './scene.js';
+import { Room, CHANNEL_COLOR } from './scene.js';
 
 const $ = (id) => document.getElementById(id);
 const room = new Room($('scene'));
 const params = new URLSearchParams(location.search);
-let running = false;
-let plan = []; // [{text, done}]
-let actions = []; // step params
+const DEMO = params.get('mode') === 'demo';
 
-$('mode').textContent = params.get('mode') === 'demo' ? 'demo mode · scripted, no mouse' : 'live · the agent moves your mouse';
+const TARGETS = {
+  '': { label: 'Auto', icon: 'wand' },
+  calculator: { label: 'Calculator', icon: 'calculator' },
+  notepad_pp: { label: 'Notepad++', icon: 'file-text' },
+  paint: { label: 'Paint', icon: 'paintbrush' },
+  sheets: { label: 'Sheets', icon: 'file-spreadsheet' },
+  docs: { label: 'Docs', icon: 'file-text' },
+  gmail: { label: 'Gmail', icon: 'mail' },
+  tinkercad: { label: 'Tinkercad', icon: 'box' },
+  blender: { label: 'Blender', icon: 'layers' },
+};
+const EXAMPLES = [
+  'Draw a house with a sun and a tree in Paint, then save it as house.png',
+  'Make a sheet of this week\'s expenses with totals and a chart',
+  'Design a keychain with my name in Tinkercad and export the STL',
+];
+const ACTION_ICON = { click: 'mouse-pointer-click', drag: 'mouse-pointer-click', type: 'keyboard', key: 'keyboard', locate: 'eye', scroll: 'mouse-pointer-click' };
+
+let running = false;
+let target = '';
+let plan = []; // [{text, done, actions: [], receipt}]
+let loose = { actions: [] }; // actions when there is no plan
+let startedAt = 0;
+let timer = null;
+
+function icon(name) {
+  const i = document.createElement('i');
+  i.className = `icon i-${name}`;
+  return i;
+}
+
+function el(tag, className, ...children) {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  e.append(...children.filter((c) => c !== null && c !== undefined));
+  return e;
+}
+
+// --- status + clock -----------------------------------------------------------
 
 function setStatus(state) {
-  $('status').dataset.state = state === 'planning' ? 'working' : state;
-  $('status').textContent = state;
+  $('status').dataset.state = state;
+  $('status-text').textContent = state;
   room.setState(state);
 }
 
-function li(className, text, note) {
-  const item = document.createElement('li');
-  item.className = className;
-  const span = document.createElement('span');
-  span.textContent = text;
-  item.append(span);
-  if (note) {
-    const small = document.createElement('span');
-    small.className = 'note';
-    small.textContent = note;
-    item.append(small);
+function clock(on) {
+  clearInterval(timer);
+  if (on) {
+    startedAt = performance.now();
+    const tick = () => {
+      const s = Math.floor((performance.now() - startedAt) / 1000);
+      $('timer').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    };
+    tick();
+    timer = setInterval(tick, 500);
   }
-  return item;
+}
+
+// --- the timeline -------------------------------------------------------------
+
+function actionRow(a) {
+  const row = el('div', 'action', el('span', 'badge', a.channel ?? '—'), icon(ACTION_ICON[a.kind] ?? 'mouse-pointer-click'), el('span', 'label', a.label));
+  if (a.channel) row.querySelector('.badge').dataset.channel = a.channel;
+  row.title = a.note ? `${a.label}\n${a.note}` : a.label;
+  return row;
+}
+
+// Rows are made once and then only updated: re-creating them would restart their entrance
+// animation on every event, and the list would flicker.
+function buildTimeline() {
+  const list = $('timeline');
+  list.replaceChildren();
+  plan.forEach((p, i) => {
+    p.node = el('span', 'node');
+    p.actionsEl = el('div', 'actions');
+    p.li = el('li', 'step', p.node, el('span', 'text', p.text), p.actionsEl);
+    p.index = i;
+    list.append(p.li);
+  });
+  if (!plan.length) {
+    loose.node = el('span', 'node');
+    loose.actionsEl = el('div', 'actions');
+    loose.li = el('li', 'step', loose.node, el('span', 'text', 'Working'), loose.actionsEl);
+  }
+}
+
+function addAction(a) {
+  const owner = currentStep() ?? loose;
+  owner.actions.push(a);
+  if (owner === loose && !loose.li.isConnected) $('timeline').append(loose.li);
+  owner.actionsEl.append(actionRow(a));
+  while (owner.actionsEl.children.length > 4) owner.actionsEl.firstChild.remove();
+}
+
+function setReceipt(p, receipt) {
+  p.receipt = receipt;
+  p.li.querySelector('.receipt')?.remove();
+  const ok = receipt.verdict === 'verified';
+  p.li.append(el('div', `receipt${ok ? '' : ' bad'}`, icon(ok ? 'shield-check' : 'x'), el('span', '', receipt.summary)));
 }
 
 function render() {
-  const list = $('steps');
-  list.replaceChildren();
-  if (plan.length) {
-    const next = plan.findIndex((p) => !p.done);
-    plan.forEach((p, i) => list.append(li(p.done ? 'ok' : i === next && running ? 'now' : '', p.text)));
-  } else if (actions.length) {
-    actions.forEach((a, i) => list.append(li(a.kind === 'noop' ? 'noop' : i === actions.length - 1 && running ? 'now' : 'ok', a.label, a.note)));
-  } else {
-    list.append(li('empty', running ? 'Planning…' : 'Nothing yet. Tell it what to do below.'));
-  }
-  const last = actions[actions.length - 1];
-  $('last').textContent = last ? `${actions.length} action${actions.length === 1 ? '' : 's'} · last: ${last.label}` : '';
+  const now = plan.findIndex((p) => !p.done);
+  plan.forEach((p, i) => {
+    const state = p.done ? 'done' : i === now && running ? 'now' : '';
+    if (p.li.dataset.state === state) return;
+    p.li.dataset.state = state;
+    p.li.className = `step ${state}`;
+    p.node.replaceChildren(p.done ? icon('check') : state === 'now' ? '' : String(i + 1));
+  });
+  if (loose.li) loose.li.className = `step ${running ? 'now' : 'done'}`;
+  const n = plan.reduce((sum, p) => sum + p.actions.length, 0) + loose.actions.length;
+  const done = plan.filter((p) => p.done).length;
+  const verified = plan.filter((p) => p.receipt?.verdict === 'verified').length;
+  $('foot').replaceChildren(...(n || done ? [
+    el('span', '', `${n} action${n === 1 ? '' : 's'}`),
+    plan.length ? el('span', '', `${done}/${plan.length} checkpoints`) : null,
+    verified ? el('span', '', `${verified} verified`) : null,
+  ] : []));
+}
+
+function currentStep() {
+  return plan.find((p) => !p.done) ?? plan[plan.length - 1];
+}
+
+// --- reasoning ----------------------------------------------------------------
+
+let typingJob = null;
+function addThought(text) {
+  const box = $('thoughts');
+  box.querySelector('.placeholder')?.remove();
+  box.querySelectorAll('p.current').forEach((p) => p.classList.remove('current'));
+  const p = el('p', 'current');
+  box.append(p);
+  while (box.children.length > 5) box.firstChild.remove();
+  cancelAnimationFrame(typingJob);
+  let shown = 0;
+  let last = performance.now();
+  const step = (now) => {
+    shown = Math.min(text.length, shown + Math.max(1, Math.round((now - last) * 0.09)));
+    last = now;
+    p.textContent = text.slice(0, shown);
+    box.scrollTop = box.scrollHeight;
+    if (shown < text.length) typingJob = requestAnimationFrame(step);
+  };
+  typingJob = requestAnimationFrame(step);
+  room.think();
+}
+
+// --- the screen panel -----------------------------------------------------------
+
+function showScreen(src) {
+  const img = $('shot-img');
+  img.onload = () => { img.classList.add('on'); $('noshot').hidden = true; };
+  img.src = src;
+  room.setScreen({ image: src });
+}
+
+function pointAt(x, y, channel) {
+  const m = $('marker');
+  m.style.left = `${x * 100}%`;
+  m.style.top = `${y * 100}%`;
+  m.style.setProperty('--c', CHANNEL_COLOR[channel] ?? 'var(--work)');
+  m.classList.add('on');
+  m.classList.remove('ping');
+  void m.offsetWidth; // restart the ping animation
+  m.classList.add('ping');
+}
+
+// --- results ---------------------------------------------------------------------
+
+function showResult(state, text, meta) {
+  const box = $('result');
+  box.hidden = false;
+  box.dataset.state = state;
+  box.replaceChildren(
+    el('span', 'seal', icon(state === 'done' ? 'check' : 'x')),
+    el('div', '', el('div', 'what', text), meta ? el('div', 'meta', meta) : null),
+  );
 }
 
 function setRunning(on) {
   running = on;
-  for (const id of ['go', 'goal', 'app']) $(id).disabled = on;
+  $('go').disabled = on;
+  $('goal').disabled = on;
   $('stop').disabled = !on;
+  for (const b of $('targets').children) b.disabled = on;
   render();
 }
 
-function showAnswer(state, text) {
-  const box = $('answer');
-  box.hidden = false;
-  box.dataset.state = state;
-  box.replaceChildren();
-  const label = document.createElement('span');
-  label.className = 'label';
-  label.textContent = { done: 'answer', stopped: 'stopped', error: 'error' }[state] ?? state;
-  box.append(label, document.createTextNode(text));
-}
+// --- events from the agent ----------------------------------------------------------
 
 window.agent.onEvent((msg) => {
   const p = msg.params ?? {};
   switch (msg.method) {
     case 'planning':
       setStatus('planning');
+      $('goal-title').textContent = p.goal;
+      $('goal-title').classList.remove('empty');
       room.setScreen({ app: '', goal: p.goal, lines: [], answer: '' });
+      room.think();
       break;
-    case 'plan':
-      plan = p.steps.map((text) => ({ text, done: false }));
-      room.setScreen({ app: p.app, goal: p.goal });
+    case 'plan': {
+      plan = p.steps.map((text) => ({ text, done: false, actions: [], receipt: null }));
+      buildTimeline();
+      $('goal-title').textContent = p.goal;
+      const t = TARGETS[p.app];
+      const chip = $('app-chip');
+      chip.hidden = !p.app;
+      chip.replaceChildren(icon(t?.icon ?? 'box'), el('span', '', t?.label ?? p.app));
+      room.setScreen({ app: t?.label ?? p.app, goal: p.goal });
       render();
       break;
+    }
     case 'started':
-      room.setScreen({ app: p.app, goal: p.goal, lines: [], answer: '' });
       setStatus('working');
+      clock(true);
+      room.setScreen({ app: TARGETS[p.app]?.label ?? p.app, goal: p.goal, lines: [], answer: '' });
       room.act('start');
       break;
-    case 'step':
+    case 'thought':
+      addThought(p.text);
+      break;
+    case 'screen':
+      showScreen(p.src);
+      break;
+    case 'step': {
       if (p.kind === 'done') return; // the ending is told by `finished`
-      actions.push(p);
-      room.setScreen({ lines: actions.map((a) => ({ n: a.n, kind: a.kind, text: a.label })) });
-      room.act(p.kind);
+      addAction(p);
+      $('last').textContent = `${p.label}`;
+      const point = p.x !== undefined ? { x: p.x, y: p.y, channel: p.channel } : null;
+      if (point) pointAt(p.x, p.y, p.channel);
+      room.act(p.kind, point);
+      render();
+      break;
+    }
+    case 'receipt':
+      if (plan[p.step - 1]) setReceipt(plan[p.step - 1], p);
       render();
       break;
     case 'check':
@@ -108,34 +269,39 @@ window.agent.onEvent((msg) => {
       break;
     case 'finished': {
       setRunning(false);
+      clock(false);
       const state = ['done', 'stopped', 'error'].includes(p.status) ? p.status : 'stopped';
       setStatus(state);
       const answer = (p.answer || '').replace(/^STOPPED:\s*/, '');
       room.setScreen({ answer });
-      const extra = p.seconds !== undefined ? ` · ${p.actions} actions, ${p.seconds}s` : '';
-      showAnswer(state, answer + extra);
+      const verified = plan.filter((s) => s.receipt?.verdict === 'verified').length;
+      const meta = [p.seconds !== undefined ? `${p.seconds}s` : null, p.actions !== undefined ? `${p.actions} actions` : null,
+        plan.length ? `${verified}/${plan.length} checkpoints verified` : null].filter(Boolean).join(' · ');
+      showResult(state, answer, meta);
       break;
     }
     case 'sidecar-exit':
       setRunning(false);
+      clock(false);
       setStatus('error');
-      showAnswer('error', `The agent process stopped (${p.error ?? `exit code ${p.code}`}). Restart the app.`);
+      showResult('error', `The agent process stopped (${p.error ?? `exit code ${p.code}`}). Restart the app.`);
       break;
   }
 });
 
 async function run(goal) {
   if (!goal.trim() || running) return;
-  $('answer').hidden = true;
+  $('result').hidden = true;
   plan = [];
-  actions = [];
+  loose = { actions: [] };
+  buildTimeline();
+  $('thoughts').replaceChildren(el('p', 'placeholder', 'Thinking…'));
   setRunning(true);
-  const app = $('app').value;
-  const reply = await window.agent.request('run', app ? { goal, app } : { goal });
+  const reply = await window.agent.request('run', target ? { goal, app: target } : { goal });
   if (reply.error) {
     setRunning(false);
     setStatus('error');
-    showAnswer('error', reply.error.message);
+    showResult('error', reply.error.message);
   }
 }
 
@@ -145,11 +311,28 @@ $('command').addEventListener('submit', (e) => {
 });
 $('stop').addEventListener('click', () => window.agent.request('stop'));
 
+function pickTarget(name) {
+  target = name;
+  for (const b of $('targets').children) b.setAttribute('aria-checked', String(b.dataset.target === name));
+}
+
 (async () => {
-  $('app').append(new Option('auto · it picks the app', ''));
+  $('brain-name').textContent = DEMO ? 'demo · scripted, no mouse' : 'live · it moves your mouse';
+  $('goal').placeholder = EXAMPLES[0];
+  let n = 0;
+  setInterval(() => { if (!$('goal').value) $('goal').placeholder = EXAMPLES[++n % EXAMPLES.length]; }, 4000);
   const reply = await window.agent.request('apps');
-  for (const name of reply.result?.apps ?? []) $('app').append(new Option(name, name));
-  if (reply.error) showAnswer('error', reply.error.message);
+  for (const name of ['', ...(reply.result?.apps ?? [])]) {
+    const t = TARGETS[name] ?? { label: name, icon: 'box' };
+    const b = el('button', 'target', icon(t.icon), el('span', '', t.label));
+    b.type = 'button';
+    b.dataset.target = name;
+    b.setAttribute('role', 'radio');
+    b.addEventListener('click', () => pickTarget(name));
+    $('targets').append(b);
+  }
+  pickTarget('');
+  if (reply.error) showResult('error', reply.error.message);
   render();
   $('goal').focus();
   const autorun = params.get('autorun');

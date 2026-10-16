@@ -3,35 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' 'sha256-QHspYcLLOKSarKa9WCONpLgp80qJjPebMyusqjGSeoo='; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob: data:">
+        content="default-src 'self'; script-src 'self' 'sha256-QHspYcLLOKSarKa9WCONpLgp80qJjPebMyusqjGSeoo='; style-src 'self'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob: data:">
   <title>computer-use</title>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
 </head>
 <body>
   <canvas id="scene"></canvas>
+  <div class="vignette"></div>
 
   <header class="top">
-    <div class="brand"><span class="dot"></span>computer-use</div>
-    <div class="status" id="status" data-state="idle">idle</div>
-    <div class="mode" id="mode"></div>
+    <div class="brand"><span class="mark"><i class="icon i-mouse-pointer-click"></i></span><span>computer-use</span></div>
+    <div class="status" id="status" data-state="idle"><span class="pulse"></span><span id="status-text">idle</span><span class="timer" id="timer"></span></div>
+    <div class="spacer"></div>
+    <div class="brain" id="brain"><i class="icon i-sparkles"></i><span id="brain-name"></span></div>
+    <div class="kill" title="Stops the agent even while another app has the focus"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>X</kbd><span>stop</span></div>
   </header>
 
-  <aside class="plan" id="plan">
-    <h2>Plan</h2>
-    <ol id="steps"></ol>
-    <div class="last" id="last"></div>
+  <aside class="panel run">
+    <div class="panel-head"><span class="eyebrow">Task</span><span class="app-chip" id="app-chip" hidden></span></div>
+    <h1 class="goal empty" id="goal-title">Give it a task below.</h1>
+    <ol class="timeline" id="timeline"></ol>
+    <div class="foot" id="foot"></div>
   </aside>
 
-  <div class="answer" id="answer" hidden></div>
+  <aside class="side">
+    <section class="panel think">
+      <div class="panel-head"><i class="icon i-brain"></i><span class="eyebrow">Reasoning</span></div>
+      <div class="thoughts" id="thoughts"><p class="placeholder">Its reasoning streams here while it works.</p></div>
+    </section>
+    <section class="panel live">
+      <div class="panel-head"><i class="icon i-scan-eye"></i><span class="eyebrow">Screen</span><span class="last" id="last"></span></div>
+      <div class="shot" id="shot">
+        <img id="shot-img" alt="">
+        <span class="marker" id="marker"></span>
+        <div class="noshot" id="noshot">The screen it sees appears here</div>
+      </div>
+      <div class="legend">
+        <span data-channel="api" title="The app's own API or a shortcut: no pixels, no guessing">api</span>
+        <span data-channel="tree" title="The accessibility tree: an element with a name">tree</span>
+        <span data-channel="eyes" title="Our trained grounder found it in the pixels">eyes</span>
+        <span data-channel="vision" title="Coordinates chosen by the reasoning model looking at the screen">vision</span>
+      </div>
+    </section>
+  </aside>
 
-  <form class="command" id="command" autocomplete="off">
-    <select id="app" aria-label="App to use"></select>
-    <input id="goal" placeholder='Tell it what to do, e.g. "What is 123 times 45?"' spellcheck="false">
-    <button type="submit" id="go">Run</button>
-    <button type="button" id="stop" class="ghost" disabled>Stop</button>
+  <div class="result panel" id="result" hidden></div>
+
+  <form class="composer" id="command" autocomplete="off">
+    <div class="targets" id="targets" role="radiogroup" aria-label="Where it works"></div>
+    <div class="bar">
+      <input id="goal" spellcheck="false" aria-label="Task">
+      <button type="submit" id="go" class="primary"><i class="icon i-play"></i>Run</button>
+      <button type="button" id="stop" class="ghost" disabled><i class="icon i-square"></i>Stop</button>
+    </div>
   </form>
-  <div class="hint">Ctrl+Shift+X stops it from anywhere · mouse into a screen corner is the hard kill switch</div>
 
   <script type="module" src="app.js"></script>
 </body>
