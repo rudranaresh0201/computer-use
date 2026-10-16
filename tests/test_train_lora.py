@@ -222,3 +222,19 @@ def test_resolve_precision_without_a_gpu_is_fp16(monkeypatch):
 
     monkeypatch.setattr(train_lora.torch.cuda, "is_available", lambda: False)
     assert train_lora.resolve_precision() == "fp16"
+
+
+def test_a_second_seed_changes_both_the_init_seed_and_the_batch_order():
+    args = build_training_args(Path("runs/test"), seed=7)
+    assert args.seed == 7 and args.data_seed == 7
+
+
+def test_scaling_subsets_are_nested_fixed_and_independent_of_the_training_seed():
+    from computeruse.training.train_lora import train_subset_indices
+
+    sizes = [100, 250, 500, 1000]
+    sets = [set(train_subset_indices(1572, n)) for n in sizes]
+    assert [len(s) for s in sets] == sizes
+    assert all(a < b for a, b in zip(sets, sets[1:]))  # 100 inside 250 inside 500 ...
+    assert train_subset_indices(1572, 100) == train_subset_indices(1572, 100)  # same every session
+    assert max(max(s) for s in sets) < 1572

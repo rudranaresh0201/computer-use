@@ -152,6 +152,7 @@ def build_training_args(
     save_steps: int = 100,
     eval_steps: int = 100,
     load_best_model_at_end: bool = True,
+    seed: int = 42,
 ) -> TrainingArguments:
     precision = precision or resolve_precision()
     return TrainingArguments(
@@ -231,8 +232,10 @@ def build_training_args(
         # initial shock, which matters more here than usual because the
         # whole run is only ~189 steps.
         warmup_ratio=0.03,
-        seed=42,
-        data_seed=42,
+        # A second training seed (same data, same schedule, new LoRA init and
+        # batch order) is how the paper shows a result isn't one lucky draw.
+        seed=seed,
+        data_seed=seed,
         # Checkpoint every 100 steps, not once per epoch (~393 steps here) --
         # a Kaggle interactive session can die mid-epoch for reasons that
         # have nothing to do with training (2026-07-23: lost two runs the
@@ -278,6 +281,8 @@ def build_trainer(
     load_best_model_at_end: bool = True,
     eval_subset_size: Optional[int] = None,
     callbacks: Optional[list] = None,
+    seed: int = 42,
+    train_limit: Optional[int] = None,
 ) -> Trainer:
     """Wires the real model + LoRA adapter + our GroundingDataset/collate_fn
     into a HF Trainer. Not called by tests -- downloads the ~4GB base
@@ -286,7 +291,9 @@ def build_trainer(
     build_trainer; build_trainer(...).train()`, not a copy-pasted script.
 
     `max_steps` hard-caps the run below the full 3-epoch schedule -- see
-    build_training_args' docstring comment."""
+    build_training_args' docstring comment. `train_limit` trains on a
+    nested subset of train (see train_subset) for the data-scaling study;
+    the schedule stays 3 epochs, so a smaller set also means fewer steps."""
     precision = precision or resolve_precision()
     print(f"precision: {precision} (device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'})")
     model = AutoModelForImageTextToText.from_pretrained(
@@ -320,6 +327,9 @@ def build_trainer(
     )
     if eval_subset_size is not None and eval_subset_size < len(eval_dataset):
         eval_dataset = dev_subset(eval_dataset, eval_subset_size)
+    if train_limit is not None and train_limit < len(train_dataset):
+        train_dataset = train_subset(train_dataset, train_limit)
+    print(f"train examples: {len(train_dataset)}  seed: {seed}")
 
     return Trainer(
         model=model,
@@ -332,6 +342,7 @@ def build_trainer(
             save_steps=save_steps,
             eval_steps=eval_steps,
             load_best_model_at_end=load_best_model_at_end,
+            seed=seed,
         ),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
@@ -352,6 +363,24 @@ def dev_subset(dataset, size: int, seed: int = 0):
 
     indices = sorted(random.Random(seed).sample(range(len(dataset)), size))
     return Subset(dataset, indices)
+
+
+def train_subset_indices(n_total: int, size: int, seed: int = 0) -> list[int]:
+    """The first `size` examples of one fixed shuffle of train. Nested by
+    construction -- the 100-example set is inside the 250, which is inside the
+    500 -- so a scaling curve compares "more of the same data", not different
+    draws. The shuffle seed is fixed and separate from the training seed."""
+    import random
+
+    order = list(range(n_total))
+    random.Random(seed).shuffle(order)
+    return sorted(order[:size])
+
+
+def train_subset(dataset, size: int, seed: int = 0):
+    from torch.utils.data import Subset
+
+    return Subset(dataset, train_subset_indices(len(dataset), size, seed))
 
 
 def find_last_checkpoint(output_dir: Path) -> Optional[str]:
