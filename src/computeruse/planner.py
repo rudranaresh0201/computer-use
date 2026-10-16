@@ -29,6 +29,8 @@ SYSTEM_PROMPT = """\
 You plan a task for an agent that operates one Windows application with the mouse and keyboard.
 Pick the app that fits, restate the goal precisely, and list 2-6 short steps a person would see happen
 on screen, in order. Steps are checkpoints, not individual clicks ("Enter 123", not "click 1, click 2").
+The app is already open and in front when the agent starts: never plan opening or launching it.
+Each step is at most 6 words, like a checklist item: "Pick the red color", "Save as rain.txt".
 If none of the apps can do the task, use app "none" and put the reason in goal."""
 
 

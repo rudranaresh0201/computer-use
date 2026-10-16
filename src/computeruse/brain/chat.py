@@ -135,7 +135,16 @@ class OpenAICompatibleChat:
         if self._key:
             headers["Authorization"] = f"Bearer {self._key}"
         for attempt in range(self._max_retries + 1):
-            response = self._post(self._url, headers=headers, json=body, timeout=self._timeout)
+            try:
+                response = self._post(self._url, headers=headers, json=body, timeout=self._timeout)
+            except OSError:  # a dropped connection or DNS blip (requests' errors are OSErrors): wait, retry
+                if attempt == self._max_retries:
+                    raise
+                self._sleep(2 ** attempt * 2)
+                continue
+            if response.status_code >= 500 and attempt < self._max_retries:
+                self._sleep(2 ** attempt * 2)
+                continue
             if response.status_code == 429 and attempt < self._max_retries:
                 # Free tiers limit tokens per minute; the server says how long to wait.
                 wait = float(response.headers.get("retry-after", 2 ** attempt * 5))

@@ -181,3 +181,27 @@ def test_a_tool_call_the_server_cannot_parse_is_asked_again_not_crashed_on():
     replies = [bad, bad, bad]
     call = chat.next_call([{"role": "user", "content": "goal"}], [])
     assert call.name == "" and "top story" in call.text  # the agent gets prose, the episode goes on
+
+
+def test_a_network_blip_or_a_5xx_is_retried_and_a_dead_network_still_raises():
+    import requests
+
+    ok = SimpleNamespace(status_code=200, headers={}, text="", json=lambda: {
+        "choices": [{"message": {"tool_calls": [{"function": {"name": "done", "arguments": '{"answer":"ok"}'}}]}}]})
+    replies = [requests.ConnectionError("dns"), SimpleNamespace(status_code=503, headers={}, text="busy"), ok]
+
+    def post(*a, **k):
+        r = replies.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    waited = []
+    chat = OpenAICompatibleChat("m", "http://x", "k", sleep=waited.append, post=post)
+    assert chat.next_call([], []).name == "done" and waited == [2, 4]
+
+    def down(*a, **k):
+        raise requests.ConnectionError("no network")
+
+    with pytest.raises(requests.ConnectionError):
+        OpenAICompatibleChat("m", "http://x", "k", max_retries=2, sleep=lambda s: None, post=down).next_call([], [])
