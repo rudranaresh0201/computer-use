@@ -18,9 +18,9 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 INSTRUCTIONS = """\
-You operate a Windows desktop app for the person, through these tools only.
+You operate desktop apps and websites for the person, through these tools only. targets() lists them.
 
-Loop: open(app) -> plan(steps) -> observe() -> act(...) -> observe() ... -> check(step, ...) for every step.
+Loop: open(target) -> plan(steps) -> observe() -> act(...) -> observe() ... -> check(step, ...) for every step.
 
 How to act, in this order of preference:
 1. Keys: shortcuts and typing into the focused app (act action="key"/"type"): exact, no pixels.
@@ -35,7 +35,7 @@ about to do in one short sentence before each action. If something refuses or fa
 def build_server(session=None):
     from mcp.server.mcpserver import Image, MCPServer
 
-    from .desktop_session import file_events, real_session
+    from .session import file_events
 
     worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="desktop")
     state = {"session": session}
@@ -46,20 +46,21 @@ def build_server(session=None):
                 import comtypes
 
                 comtypes.CoInitialize()
-                state["session"] = real_session(file_events(os.environ.get("CU_EVENTS")))
+                state["session"] = build_session(file_events(os.environ.get("CU_EVENTS")))
             return fn(state["session"], *args, **kwargs)
 
         return asyncio.get_running_loop().run_in_executor(worker, call)
 
     server = MCPServer("computeruse", instructions=INSTRUCTIONS)
 
-    @server.tool(description="List the desktop apps this server can drive.")
+    @server.tool(description="List the desktop apps and websites this server can drive.")
     async def targets() -> str:
         return await on_worker(lambda s: s.targets())
 
-    @server.tool(description="Open (or bring to the front) a desktop app by name, e.g. 'paint'. Call this first.")
-    async def open(app: str) -> str:  # noqa: A001 -- the tool's name is what the model sees
-        return await on_worker(lambda s: s.open(app))
+    @server.tool(description="Open (or bring to the front) a target from targets(), e.g. 'paint' or 'sheets'. "
+                             "Call it first, and again to switch to another app or site.")
+    async def open(target: str) -> str:  # noqa: A001 -- the tool's name is what the model sees
+        return await on_worker(lambda s: s.open(target))
 
     @server.tool(description="Record the task as 2-8 short checkpoints, in order (e.g. 'Draw the house', "
                              "'Save as house.png'). Each one is later proven with check().")
@@ -90,6 +91,14 @@ def build_server(session=None):
         return await on_worker(lambda s: s.check(step, kind, value, min_bytes))
 
     return server
+
+
+def build_session(events):
+    from .desktop_session import real_desktop
+    from .session import Session
+
+    desktop = real_desktop()
+    return Session(surfaces={name: desktop for name in desktop.apps}, events=events)
 
 
 def main() -> None:

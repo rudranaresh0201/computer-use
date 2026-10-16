@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 from computeruse.action.schema import ActionType
-from computeruse.desktop_session import DesktopSession, Shot
+from computeruse.desktop_session import DesktopSurface
+from computeruse.session import Session, Shot
 
 
 @dataclass
@@ -25,14 +26,14 @@ def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None):
         # the model sees a 1280x720 image of a 2560x1440 screen
         return Shot(b"jpeg", (1280, 720), lambda x, y: (x * 2, y * 2), small)
 
-    s = DesktopSession(
+    desktop = DesktopSurface(
         apps={"paint": (["mspaint.exe"], "Paint")},
         tree=lambda: tree, shoot=shoot,
         execute=lambda a: done.append(a) or SimpleNamespace(success=True, error=None),
         foreground=lambda: foreground, focus=lambda w: focus_ok, launch=lambda app: "Paint",
-        events=lambda m, p: events.append((m, p)), sleep=lambda s: None,
-        **({"home": home} if home else {}),
     )
+    s = Session(surfaces={"paint": desktop}, events=lambda m, p: events.append((m, p)), sleep=lambda s: None,
+                **({"home": home} if home else {}))
     return s, done, events
 
 
@@ -42,7 +43,7 @@ def changed_screens(n):
 
 def test_nothing_happens_before_an_app_is_open():
     s, done, _ = make()
-    assert "open(app) first" in s.act("click", x=10, y=10) and done == []
+    assert "open(target) first" in s.act("click", x=10, y=10) and done == []
 
 
 def test_observe_lists_elements_by_id_sends_the_screen_and_returns_the_image():
@@ -112,8 +113,8 @@ def test_an_action_that_changes_nothing_says_so():
 
 def test_it_refuses_to_act_when_another_window_took_the_front_and_cannot_be_moved():
     s, done, _ = make(foreground="Inbox - Gmail", focus_ok=False)
-    s.window = "Paint"
-    s.shot = Shot(b"", (1280, 720), lambda x, y: (x, y))
+    s.open("paint")
+    s.surface.shot = Shot(b"", (1280, 720), lambda x, y: (x, y))
     assert "not in front" in s.act("click", x=1, y=1) and done == []
 
 
