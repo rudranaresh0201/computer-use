@@ -40,6 +40,7 @@ const EXAMPLES = [
 const ACTION_ICON = { click: 'mouse-pointer-click', drag: 'mouse-pointer-click', type: 'keyboard', key: 'keyboard', locate: 'eye', scroll: 'mouse-pointer-click' };
 
 let running = false;
+let appLabel = '';
 let target = '';
 let plan = []; // [{text, done, actions: [], receipt}]
 let loose = { actions: [] }; // actions when there is no plan
@@ -82,9 +83,25 @@ function clock(on) {
 
 // --- the timeline -------------------------------------------------------------
 
+// 'click u112 Button "Rectangle"' -> 'clicked Rectangle': the log reads like a person wrote it.
+// The exact label stays in the tooltip.
+function humanize(a) {
+  const quoted = a.label.match(/"([^"]+)"/)?.[1];
+  const typed = a.label.match(/type '([^']*)'|type "([^"]*)"|\s(\S+\.\w{2,4})$/);
+  switch (a.kind) {
+    case 'click': return quoted ? `clicked ${quoted}` : 'clicked on the screen';
+    case 'drag': return 'drew on the canvas';
+    case 'type': return `typed ${typed?.[1] ?? typed?.[2] ?? typed?.[3] ?? 'text'}`;
+    case 'key': return `pressed ${a.label.replace(/^key\s+/, '').split('+').map((k) => k[0].toUpperCase() + k.slice(1)).join('+')}`;
+    case 'locate': return `looked for the ${quoted ?? 'target'}`;
+    case 'scroll': return 'scrolled';
+    default: return a.label;
+  }
+}
+
 function actionRow(a) {
-  const row = el('div', 'action', el('span', 'badge', a.channel ?? '—'), icon(ACTION_ICON[a.kind] ?? 'mouse-pointer-click'), el('span', 'label', a.label));
-  if (a.channel) row.querySelector('.badge').dataset.channel = a.channel;
+  const row = el('div', 'action', el('span', 'dot'), el('span', 'label', humanize(a)), a.channel ? el('span', 'via', a.channel) : null);
+  if (a.channel) row.dataset.channel = a.channel;
   row.title = a.note ? `${a.label}\n${a.note}` : a.label;
   return row;
 }
@@ -120,7 +137,7 @@ function setReceipt(p, receipt) {
   p.receipt = receipt;
   p.li.querySelector('.receipt')?.remove();
   const ok = receipt.verdict === 'verified';
-  p.li.append(el('div', `receipt${ok ? '' : ' bad'}`, icon(ok ? 'shield-check' : 'x'), el('span', '', receipt.summary)));
+  p.li.append(el('div', `receipt${ok ? '' : ' bad'}`, `${ok ? 'verified' : 'not verified'}: ${receipt.summary}`));
 }
 
 function render() {
@@ -130,17 +147,13 @@ function render() {
     if (p.li.dataset.state === state) return;
     p.li.dataset.state = state;
     p.li.className = `step ${state}`;
-    p.node.replaceChildren(p.done ? icon('check') : state === 'now' ? '' : String(i + 1));
+    p.node.replaceChildren(p.done ? '✓' : String(i + 1));
   });
   if (loose.li) loose.li.className = `step ${running ? 'now' : 'done'}`;
   const n = plan.reduce((sum, p) => sum + p.actions.length, 0) + loose.actions.length;
   const done = plan.filter((p) => p.done).length;
-  const verified = plan.filter((p) => p.receipt?.verdict === 'verified').length;
-  $('foot').replaceChildren(...(n || done ? [
-    el('span', '', `${n} action${n === 1 ? '' : 's'}`),
-    plan.length ? el('span', '', `${done}/${plan.length} checkpoints`) : null,
-    verified ? el('span', '', `${verified} verified`) : null,
-  ] : []));
+  const parts = [appLabel, plan.length ? `${done} of ${plan.length} done` : null, n ? `${n} action${n === 1 ? '' : 's'}` : null];
+  $('meta').textContent = parts.filter(Boolean).join(' · ');
 }
 
 function currentStep() {
@@ -229,9 +242,7 @@ window.agent.onEvent((msg) => {
       buildTimeline();
       $('goal-title').textContent = p.goal;
       const t = TARGETS[p.app];
-      const chip = $('app-chip');
-      chip.hidden = !p.app;
-      chip.replaceChildren(icon(t?.icon ?? 'box'), el('span', '', t?.label ?? p.app));
+      appLabel = t?.label ?? p.app ?? '';
       room.setScreen({ app: t?.label ?? p.app, goal: p.goal });
       render();
       break;
@@ -251,7 +262,7 @@ window.agent.onEvent((msg) => {
     case 'step': {
       if (p.kind === 'done') return; // the ending is told by `finished`
       addAction(p);
-      $('last').textContent = `${p.label}`;
+      $('last').textContent = `${humanize(p)} · ${p.channel ?? ''}`;
       const point = p.x !== undefined ? { x: p.x, y: p.y, channel: p.channel } : null;
       if (point) pointAt(p.x, p.y, p.channel);
       room.act(p.kind, point);
@@ -294,6 +305,7 @@ async function run(goal) {
   $('result').hidden = true;
   plan = [];
   loose = { actions: [] };
+  appLabel = '';
   buildTimeline();
   $('thoughts').replaceChildren(el('p', 'placeholder', 'Thinking…'));
   setRunning(true);
