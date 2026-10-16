@@ -1,0 +1,17 @@
+{
+  "name": "computer-use-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The computer-use agent with a face: a 3D room, a command bar, and the agent as a JSON-RPC sidecar",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "demo": "electron . --demo"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  }
+}

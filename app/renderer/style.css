@@ -1,0 +1,61 @@
+:root {
+  --bg: #0b0d10;
+  --panel: rgba(16, 19, 24, 0.78);
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #e6e8eb;
+  --muted: #8a919c;
+  --work: #4cc9f0;   /* the agent is acting */
+  --ok: #4ade80;     /* finished, answer found */
+  --warn: #fbbf24;   /* refused / stopped */
+  --bad: #f87171;    /* error */
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); }
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+.top { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px; padding: 16px 20px; pointer-events: none; }
+.brand { font: 600 15px var(--mono); letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; }
+.brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--work); box-shadow: 0 0 12px var(--work); }
+.status { font: 12px var(--mono); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+.status[data-state="working"] { color: var(--work); border-color: color-mix(in srgb, var(--work) 40%, transparent); }
+.status[data-state="done"] { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.status[data-state="stopped"] { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.status[data-state="error"] { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.mode { margin-left: auto; font: 12px var(--mono); color: var(--muted); }
+
+.plan { position: fixed; top: 64px; left: 20px; width: 300px; max-height: calc(100% - 200px); overflow: auto; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(8px); }
+.plan h2 { margin: 0 0 10px; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.plan ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.plan li { font: 12.5px var(--mono); color: var(--muted); display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: start; }
+.plan li::before { content: "○"; color: var(--muted); }
+.plan li.ok { color: var(--text); }
+.plan li.ok::before { content: "✓"; color: var(--ok); }
+.plan li.now { color: var(--work); }
+.plan li.now::before { content: "▸"; color: var(--work); }
+.plan li.noop { color: var(--warn); }
+.plan li.noop::before { content: "!"; color: var(--warn); }
+.plan li.empty { color: var(--muted); grid-template-columns: 1fr; }
+.plan li.empty::before { content: none; }
+.plan .last { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.plan .last:empty { display: none; }
+.plan li .note { grid-column: 2; font-size: 11px; color: var(--muted); }
+
+.answer { position: fixed; top: 64px; right: 20px; max-width: 360px; padding: 14px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); font: 13px var(--mono); }
+.answer .label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 6px; }
+.answer[data-state="done"] { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.answer[data-state="stopped"] { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.answer[data-state="error"] { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+
+.command { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(820px, calc(100% - 40px)); display: flex; gap: 8px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(10px); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); }
+.command select, .command input, .command button { font: 14px var(--sans); color: var(--text); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; outline: none; }
+.command select { font-family: var(--mono); font-size: 12.5px; }
+.command select option { background: #14171c; }
+.command input { flex: 1; min-width: 0; }
+.command input:focus, .command select:focus { border-color: color-mix(in srgb, var(--work) 55%, transparent); }
+.command button { cursor: pointer; font-weight: 600; background: var(--work); color: #06121a; border-color: transparent; }
+.command button.ghost { background: transparent; color: var(--text); border-color: var(--line); font-weight: 500; }
+.command button:disabled { opacity: 0.4; cursor: default; }
+.hint { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; font: 11px var(--mono); color: var(--muted); pointer-events: none; }

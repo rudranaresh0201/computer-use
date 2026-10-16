@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'sha256-QHspYcLLOKSarKa9WCONpLgp80qJjPebMyusqjGSeoo='; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob: data:">
+  <title>computer-use</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <header class="top">
+    <div class="brand"><span class="dot"></span>computer-use</div>
+    <div class="status" id="status" data-state="idle">idle</div>
+    <div class="mode" id="mode"></div>
+  </header>
+
+  <aside class="plan" id="plan">
+    <h2>Plan</h2>
+    <ol id="steps"></ol>
+    <div class="last" id="last"></div>
+  </aside>
+
+  <div class="answer" id="answer" hidden></div>
+
+  <form class="command" id="command" autocomplete="off">
+    <select id="app" aria-label="App to use"></select>
+    <input id="goal" placeholder='Tell it what to do, e.g. "What is 123 times 45?"' spellcheck="false">
+    <button type="submit" id="go">Run</button>
+    <button type="button" id="stop" class="ghost" disabled>Stop</button>
+  </form>
+  <div class="hint">Ctrl+Shift+X stops it from anywhere · mouse into a screen corner is the hard kill switch</div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
