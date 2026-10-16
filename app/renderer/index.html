@@ -49,6 +49,15 @@
 
   <div class="result panel" id="result" hidden></div>
 
+  <div class="ask" id="ask" hidden role="alertdialog" aria-labelledby="ask-what">
+    <div class="ask-card panel">
+      <p class="ask-title">It wants your OK before</p>
+      <p class="ask-what" id="ask-what"></p>
+      <p class="ask-note">This can't be undone, so it waits for you. No answer in 90 seconds counts as no.</p>
+      <div class="ask-buttons"><button type="button" class="ghost" id="deny">Don't</button><button type="button" class="primary" id="allow">Allow</button></div>
+    </div>
+  </div>
+
   <form class="composer" id="command" autocomplete="off">
     <div class="targets" id="targets" role="radiogroup" aria-label="Where it works"></div>
     <div class="bar">

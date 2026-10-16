@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from .session import THUMB, Move, Refused, Shot, Step, differs
+from .session import RISKY_WORDS, SECRET_FIELDS, THUMB, Move, Refused, Shot, Step, differs
 
 SITES = {
     # name: (where it starts, what the model is told it is for)
@@ -35,6 +35,23 @@ SITES = {
     "excalidraw": ("https://excalidraw.com/", "Excalidraw: whiteboard diagrams (the canvas is invisible to the tree)"),
 }
 SIGN_IN = ("https://accounts.google.com/", "https://www.tinkercad.com/login")
+
+# What a click at x, y would press: the label of the element there, or of the nearest clickable
+# ancestor -- never the text of some big container (the page body contains every word on it).
+LABEL_AT_POINT = """([x, y]) => {
+  let e = document.elementFromPoint(x, y);
+  for (let i = 0; e && i < 5; i++, e = e.parentElement) {
+    const tag = e.tagName.toLowerCase(), role = e.getAttribute('role') || '';
+    if (tag === 'body' || tag === 'html' || tag === 'canvas') return '';
+    const clickable = ['button', 'a', 'input', 'summary', 'select'].includes(tag)
+      || /button|link|menuitem|tab|option|checkbox|switch/.test(role);
+    const label = e.getAttribute('aria-label') || e.getAttribute('data-tooltip') || e.getAttribute('title')
+      || (clickable ? (e.value || e.innerText || '') : '');
+    if (label.trim()) return label.trim().slice(0, 80);
+    if (clickable) return '';
+  }
+  return '';
+}"""
 
 KEY_NAMES = {
     "ctrl": "Control", "control": "Control", "alt": "Alt", "shift": "Shift", "win": "Meta", "cmd": "Meta",
@@ -190,6 +207,26 @@ class WebSurface:
             return Move(self._run(click_type), Step("type", f"type {(text or '')[:40]!r} at ({x}, {y})", "vision", self._frac(x, y)))
         return Move(self._run(lambda: page.mouse.click(px, py, button=button, click_count=clicks)),
                     Step("click", f"{action.replace('_', ' ')} ({x}, {y})", "vision", self._frac(x, y)))
+
+    def risk(self, action, element, x, y, text, keys) -> Optional[str]:
+        """Why this needs the person's yes, or None. A click by x, y is judged by what is under
+        that point, so coordinates are no way around the gate."""
+        page = self.page()
+        if action == "key" and keys:
+            combo = keys.replace(" ", "").lower()
+            if combo in ("ctrl+enter", "control+enter") and "mail.google." in page.url:
+                return "sending this email (Ctrl+Enter in Gmail)"
+            return None
+        label = ""
+        if element is not None and element in self.elements:
+            label = self.elements[element].name
+        elif x is not None and y is not None and action in ("click", "double_click", "type"):
+            label = page.evaluate(LABEL_AT_POINT, [int(x), int(y)]) or ""
+        if action == "type" and SECRET_FIELDS.search(label):
+            return f"typing into {label!r}"
+        if action in ("click", "double_click") and RISKY_WORDS.search(label):
+            return f"clicking {label!r}"
+        return None
 
     # --- internals --------------------------------------------------------------
 

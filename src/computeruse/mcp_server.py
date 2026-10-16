@@ -35,7 +35,7 @@ about to do in one short sentence before each action. If something refuses or fa
 def build_server(session=None):
     from mcp.server.mcpserver import Image, MCPServer
 
-    from .session import file_events
+    from .session import file_approver, file_events
 
     worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="desktop")
     state = {"session": session}
@@ -46,7 +46,9 @@ def build_server(session=None):
                 import comtypes
 
                 comtypes.CoInitialize()
-                state["session"] = build_session(file_events(os.environ.get("CU_EVENTS")))
+                path = os.environ.get("CU_EVENTS")
+                events = file_events(path)
+                state["session"] = build_session(events, file_approver(path, events))
             return fn(state["session"], *args, **kwargs)
 
         return asyncio.get_running_loop().run_in_executor(worker, call)
@@ -93,7 +95,7 @@ def build_server(session=None):
     return server
 
 
-def build_session(events):
+def build_session(events, approve=lambda reason: False):
     from .desktop_session import real_desktop
     from .session import Session
 
@@ -106,7 +108,7 @@ def build_session(events):
     chrome = AgentChrome()  # started or attached on the first web target, not before
     web = WebSurface(SITES, page=chrome.page, settle=lambda: time.sleep(0.5))
     surfaces = {name: desktop for name in desktop.apps} | {name: web for name in SITES}
-    return Session(surfaces=surfaces, events=events)
+    return Session(surfaces=surfaces, events=events, approve=approve)
 
 
 def main() -> None:

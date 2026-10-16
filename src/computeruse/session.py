@@ -25,7 +25,9 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,6 +89,8 @@ class Session:
     clock: Callable[[], float] = time.time
     sleep: Callable[[float], None] = time.sleep
     home: Path = field(default_factory=Path.home)
+    # asks the person about an irreversible action; True = go ahead. Default: no one to ask, so no.
+    approve: Callable[[str], bool] = lambda reason: False
 
     target: Optional[str] = None
     surface: Any = None
@@ -146,6 +150,11 @@ class Session:
             move = self.surface.resolve(action, element, x, y, to_x, to_y, text, keys, direction, amount)
         except Refused as e:
             return str(e)
+        risk = getattr(self.surface, "risk", None)
+        reason = risk(action, element, x, y, text, keys) if risk else None
+        if reason and not self.approve(reason):
+            return (f"The person did not approve: {reason}. Do not do it another way; "
+                    "finish what you can without it and say what is left for them.")
         before = self.surface.state()
         ok, error = move.run()
         if not ok:
@@ -231,6 +240,37 @@ def differs(a: bytes, b: bytes, mean_threshold: float = 1.5, strong: int = 48, s
 def ascii_only(text: str) -> None:
     if any(ord(c) > 126 for c in text):
         raise Refused("type can only send plain ASCII text here.")
+
+
+RISKY_WORDS = re.compile(
+    r"\b(buy|pay|purchase|checkout|place order|order now|delete|remove|send|post|publish|submit order|"
+    r"unsubscribe|sign out|log out|transfer|confirm payment)\b", re.IGNORECASE)
+SECRET_FIELDS = re.compile(r"pass(word|code)|\bpin\b|card number|cvv", re.IGNORECASE)
+
+
+def file_approver(events_path: Optional[str], emit: Callable[[str, dict], None], timeout: float = 90.0,
+                  poll: float = 0.25, clock: Callable[[], float] = time.time,
+                  sleep: Callable[[float], None] = time.sleep) -> Callable[[str], bool]:
+    """Ask the person through the app: emit `approval`, then wait for approvals/<id>.json (written by
+    the sidecar when they click) next to the events file. No events file means no app to ask: no."""
+    if not events_path:
+        return lambda reason: False
+    folder = Path(events_path).parent / "approvals"
+
+    def approve(reason: str) -> bool:
+        aid = uuid.uuid4().hex[:8]
+        emit("approval", {"id": aid, "action": reason})
+        answer, deadline = folder / f"{aid}.json", clock() + timeout
+        while clock() < deadline:
+            if answer.exists():
+                ok = json.loads(answer.read_text(encoding="utf-8")).get("ok") is True
+                emit("approval-done", {"id": aid, "ok": ok})
+                return ok
+            sleep(poll)
+        emit("approval-done", {"id": aid, "ok": False, "timeout": True})
+        return False
+
+    return approve
 
 
 def file_events(path: Optional[str]) -> Callable[[str, dict], None]:

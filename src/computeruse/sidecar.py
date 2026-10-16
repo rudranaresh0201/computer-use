@@ -49,8 +49,10 @@ def step_kind(label: str, note: str) -> str:
 
 class Sidecar:
     def __init__(self, runner: Runner, apps: list[str], out: TextIO, planner: Planner | None = None,
-                 brain: str = "", app_optional: bool = False) -> None:
+                 brain: str = "", app_optional: bool = False,
+                 extra: "dict[str, Callable[[dict], dict]] | None" = None) -> None:
         self._runner = runner
+        self._extra = extra or {}  # more methods, e.g. approve for the claude brain
         self._brain = brain
         self._app_optional = app_optional  # the brain picks the app itself (claude)
         self._planner = planner
@@ -117,6 +119,11 @@ class Sidecar:
             self._stop.clear()
             self._thread = threading.Thread(target=self._run, args=(goal.strip(), app), daemon=True)
             return {"started": True}, self._thread.start
+        if method in self._extra:
+            try:
+                return self._extra[method](params), None
+            except ValueError as e:
+                raise _RpcError(INVALID_PARAMS, str(e)) from e
         raise _RpcError(METHOD_NOT_FOUND, f"unknown method {method!r}")
 
     def _run(self, goal: str, app: str | None) -> None:
@@ -285,12 +292,29 @@ class _RpcError(Exception):
         self.code = code
 
 
+def approve(run_dir: dict, params: dict) -> dict:
+    """The person's answer to an `approval` event, written where the MCP server is waiting for it
+    (session.file_approver): <run dir>/approvals/<id>.json."""
+    import re
+
+    aid, ok = str(params.get("id", "")), params.get("ok") is True
+    if not re.fullmatch(r"[0-9a-f]{8}", aid):
+        raise ValueError("approve needs the 8-hex id from the approval event")
+    if run_dir.get("path") is None:
+        raise ValueError("no run is waiting for an approval")
+    folder = run_dir["path"] / "approvals"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{aid}.json").write_text(json.dumps({"ok": ok}), encoding="utf-8")
+    return {"recorded": True, "ok": ok}
+
+
 def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") -> None:
     from .brain.chat import OpenAICompatibleChat
     from .desktop_run import APPS, run_task
     from .planner import make_plan
 
     protocol = sys.stdout
+    run_dir: dict = {"path": None}  # the claude brain's current run folder (events, approvals)
     sys.stdout = sys.stderr  # every stray print() now lands on stderr, not in the protocol stream
     for stream in (protocol, sys.stderr, sys.stdin):
         if hasattr(stream, "reconfigure"):
@@ -309,7 +333,12 @@ def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") ->
 
             import os
 
-            return run_claude(goal, app, sidecar.notify, should_stop, model=os.environ.get("CU_CLAUDE_MODEL") or None)
+            import tempfile
+            from pathlib import Path
+
+            run_dir["path"] = Path(tempfile.mkdtemp(prefix="cu-claude-"))
+            return run_claude(goal, app, sidecar.notify, should_stop, model=os.environ.get("CU_CLAUDE_MODEL") or None,
+                              workdir=run_dir["path"])
         return run_task(goal, app, model, max_steps, on_step=on_step, should_stop=should_stop,
                         plan=plan, on_check=on_check)
 
@@ -327,5 +356,6 @@ def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") ->
         from .web_surface import SITES
 
         targets += list(SITES)
-    sidecar = Sidecar(runner, targets, protocol, planner=None if claude else planner, brain=label, app_optional=claude)
+    sidecar = Sidecar(runner, targets, protocol, planner=None if claude else planner, brain=label, app_optional=claude,
+                      extra={"approve": lambda params: approve(run_dir, params)})
     sidecar.serve(sys.stdin)

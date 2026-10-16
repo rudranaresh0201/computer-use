@@ -180,3 +180,15 @@ kbd { font: 500 10.5px var(--mono); color: var(--text-2); padding: 2px 6px; bord
 .primary { color: #0b0c0f; background: linear-gradient(180deg, #ffffff, #d9dee5); box-shadow: 0 8px 22px -10px rgba(255, 255, 255, 0.55); }
 .ghost { color: var(--text-2); background: transparent; border-color: var(--line-2) !important; }
 .bar button:disabled { opacity: 0.35; cursor: default; transform: none; }
+
+/* --- asking the person ------------------------------------------------------- */
+.ask[hidden] { display: none; }
+.ask { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(4, 5, 7, 0.45); backdrop-filter: blur(3px); animation: fade 0.25s ease both; }
+.ask-card { width: min(440px, calc(100% - 48px)); padding: 22px 24px 20px; animation: rise-in 0.35s var(--ease) both; }
+.ask-title { margin: 0; font-size: 13px; color: var(--muted); }
+.ask-what { margin: 6px 0 10px; font-size: 18px; font-weight: 560; color: var(--text); }
+.ask-note { margin: 0 0 18px; font-size: 12.5px; color: var(--muted); }
+.ask-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.ask-buttons button { padding: 9px 18px; border-radius: 10px; font: 600 13.5px var(--sans); cursor: pointer; border: 1px solid transparent; }
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }

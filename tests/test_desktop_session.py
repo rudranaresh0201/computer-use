@@ -16,10 +16,11 @@ class El:
     center: tuple
 
 
-def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None):
+def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None, approve=None):
     done, events = [], []
     screens = list(screens or [])
-    tree = [El("Rectangle", "Button", (900, 120)), El("", "Button", (950, 120)), El("File name", "Edit", (700, 900))]
+    tree = [El("Rectangle", "Button", (900, 120)), El("", "Button", (950, 120)), El("File name", "Edit", (700, 900)),
+            El("Delete", "Button", (1000, 120))]
 
     def shoot():
         small = screens.pop(0) if screens else bytes([0]) * 16
@@ -33,7 +34,7 @@ def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None):
         foreground=lambda: foreground, focus=lambda w: focus_ok, launch=lambda app: "Paint",
     )
     s = Session(surfaces={"paint": desktop}, events=lambda m, p: events.append((m, p)), sleep=lambda s: None,
-                **({"home": home} if home else {}))
+                **({"home": home} if home else {}), **({"approve": approve} if approve else {}))
     return s, done, events
 
 
@@ -160,3 +161,49 @@ def test_changed_is_judged_against_the_screen_when_the_step_started_not_the_last
     s.observe()
     s.observe()                     # the model looks again after drawing...
     assert "verified" in s.check(1, "changed")  # ...and the step still counts
+
+
+def test_an_irreversible_click_waits_for_the_person_and_a_no_means_nothing_happens():
+    asked = []
+    s, done, _ = make(screens=changed_screens(6), approve=lambda reason: asked.append(reason) or False)
+    s.open("paint")
+    s.observe()
+    reply = s.act("click", element="u3")
+    assert asked == ["clicking 'Delete'"] and "did not approve" in reply and done == []
+    s.approve = lambda reason: True
+    s.act("click", element="u3")
+    assert done[-1].coordinate == (1000, 120)
+
+
+def test_ordinary_clicks_never_ask():
+    asked = []
+    s, done, _ = make(screens=changed_screens(4), approve=lambda reason: asked.append(reason) or True)
+    s.open("paint")
+    s.observe()
+    s.act("click", element="u0")
+    assert asked == [] and len(done) == 1
+
+
+def test_the_file_approver_waits_for_the_answer_file_and_treats_silence_as_no(tmp_path):
+    from computeruse.session import file_approver
+
+    events, now = [], [0.0]
+
+    def sleep(d):
+        now[0] += d
+        if now[0] >= 1.0 and events:  # the person clicks Allow a second in
+            aid = events[0][1]["id"]
+            (tmp_path / "approvals").mkdir(exist_ok=True)
+            (tmp_path / "approvals" / f"{aid}.json").write_text('{"ok": true}')
+
+    ask = file_approver(str(tmp_path / "events.jsonl"), lambda m, p: events.append((m, p)),
+                        timeout=5, clock=lambda: now[0], sleep=sleep)
+    assert ask("sending this email") is True
+    assert events[0] == ("approval", {"id": events[0][1]["id"], "action": "sending this email"})
+    assert events[-1][0] == "approval-done" and events[-1][1]["ok"] is True
+
+    silent = file_approver(str(tmp_path / "e2.jsonl"), lambda m, p: None, timeout=1,
+                           clock=lambda: now[0], sleep=lambda d: now.__setitem__(0, now[0] + d))
+    now[0] = 0.0
+    assert silent("deleting a file") is False
+    assert file_approver(None, lambda m, p: None)("anything") is False  # no app to ask: no

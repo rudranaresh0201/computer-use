@@ -126,3 +126,28 @@ def test_showcase_emits_thoughts_channels_receipts_and_ticks_every_plan_step():
     assert all(0 <= p["x"] <= 1 and 0 <= p["y"] <= 1 for p in steps if "x" in p)
     assert sum(m == "receipt" for m, _ in events) >= len(checks) - 1 and any(m == "thought" for m, _ in events)
     assert showcase_runner("g", "paint", lambda l, n: None, lambda: True, pause=0)["status"] == "stopped"
+
+
+def test_approve_writes_the_answer_where_the_server_waits_and_rejects_bad_ids(tmp_path):
+    import json
+
+    import pytest
+
+    from computeruse.sidecar import approve
+
+    run = {"path": tmp_path}
+    assert approve(run, {"id": "0a1b2c3d", "ok": True}) == {"recorded": True, "ok": True}
+    assert json.loads((tmp_path / "approvals" / "0a1b2c3d.json").read_text()) == {"ok": True}
+    with pytest.raises(ValueError):
+        approve(run, {"id": "../../evil", "ok": True})
+    with pytest.raises(ValueError):
+        approve({"path": None}, {"id": "0a1b2c3d", "ok": True})
+
+
+def test_extra_methods_answer_like_built_in_ones():
+    import io
+
+    out = io.StringIO()
+    sc = Sidecar(lambda *a, **k: {}, ["paint"], out, extra={"approve": lambda p: {"recorded": True}})
+    sc.handle('{"jsonrpc":"2.0","id":5,"method":"approve","params":{"id":"0a1b2c3d","ok":true}}')
+    assert '"recorded": true' in out.getvalue()

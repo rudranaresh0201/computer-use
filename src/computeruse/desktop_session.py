@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .action.schema import Action, ActionType
-from .session import THUMB, Move, Refused, Shot, Step, ascii_only, differs
+from .session import RISKY_WORDS, SECRET_FIELDS, THUMB, Move, Refused, Shot, Step, ascii_only, differs
 
 IMAGE_EDGE = 1280  # long edge of the screenshot the model sees
 
@@ -117,6 +117,15 @@ class DesktopSurface:
                         Step("type", f"type {(text or '')[:40]!r} into {label}", channel, frac))
         kind = {"click": ActionType.LEFT_CLICK, "double_click": ActionType.DOUBLE_CLICK, "right_click": ActionType.RIGHT_CLICK}[action]
         return Move(run(Action(kind, coordinate=where)), Step("click", f"{action.replace('_', ' ')} {label}", channel, frac))
+
+    def risk(self, action, element, x, y, text, keys) -> Optional[str]:
+        e = self.elements.get(element) if element is not None else None
+        label = (getattr(e, "name", "") or "") if e is not None else ""
+        if action == "type" and SECRET_FIELDS.search(label):
+            return f"typing into {label!r}"
+        if action in ("click", "double_click") and RISKY_WORDS.search(label):
+            return f"clicking {label!r}"
+        return None
 
     # --- internals --------------------------------------------------------------
 

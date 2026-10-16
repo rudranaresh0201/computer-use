@@ -17,6 +17,7 @@ PAGE = """<html><head><title>Notes</title></head><body style="margin:0">
 <button onclick="document.getElementById('out').textContent='saved: '+document.getElementById('t').value">Save</button>
 <button onclick="document.getElementById('out').textContent='icon pressed'"><svg width=16 height=16></svg></button>
 <p id=out></p>
+<div role=button style="position:absolute;left:600px;top:20px;width:80px;height:30px" onclick="document.getElementById('out').textContent='SENT'">Send</div>
 <canvas id=c width=400 height=200 style="display:block;border:1px solid #000"></canvas>
 <p id=hits></p>
 <script>
@@ -99,3 +100,16 @@ def test_keys_reach_the_page(session):
     session.set_plan(["Shortcut"])
     assert "verified" in session.check(1, "text", "ctrl+s pressed")
     assert "verified" in session.check(1, "url", "data:text/html")
+
+
+def test_a_send_button_is_gated_even_when_clicked_by_coordinates(session):
+    asked = []
+    session.approve = lambda reason: asked.append(reason) or False
+    session.observe()
+    reply = session.act("click", x=640, y=35)  # the Send button's spot, not its ref
+    assert "did not approve" in reply and asked and "Send" in asked[0]
+    session.set_plan(["x"])
+    assert "NOT verified" in session.check(1, "text", "SENT")  # it really did not happen
+    session.approve = lambda reason: True
+    session.act("click", element=ref_of(session, "button", "Send"))
+    assert "verified" in session.check(1, "text", "SENT")

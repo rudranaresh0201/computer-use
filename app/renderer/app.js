@@ -292,6 +292,12 @@ window.agent.onEvent((msg) => {
       showResult(state, answer, meta);
       break;
     }
+    case 'approval':
+      askPerson(p.id, p.action);
+      break;
+    case 'approval-done':
+      if ($('ask').dataset.id === p.id) $('ask').hidden = true;
+      break;
     case 'sidecar-exit':
       setRunning(false);
       clock(false);
@@ -323,6 +329,22 @@ $('command').addEventListener('submit', (e) => {
   run($('goal').value);
 });
 $('stop').addEventListener('click', () => window.agent.request('stop'));
+
+// An irreversible action waits for the person: the answer goes back through the sidecar to the
+// MCP server, which is blocked on it (session.file_approver).
+function askPerson(id, action) {
+  $('ask').dataset.id = id;
+  $('ask-what').textContent = action;
+  $('ask').hidden = false;
+  $('allow').focus();
+}
+async function answer(ok) {
+  const id = $('ask').dataset.id;
+  $('ask').hidden = true;
+  if (id) await window.agent.request('approve', { id, ok });
+}
+$('allow').addEventListener('click', () => answer(true));
+$('deny').addEventListener('click', () => answer(false));
 
 function pickTarget(name) {
   target = name;
