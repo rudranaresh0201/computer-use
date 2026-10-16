@@ -75,7 +75,8 @@ class Surface(Protocol):
     def ready(self) -> Optional[str]: ...
     def observe(self) -> tuple[str, Shot]: ...
     def resolve(self, action: str, element: Optional[str], x, y, to_x, to_y, text, keys, direction, amount) -> Move: ...
-    def small(self) -> bytes: ...
+    def state(self) -> Any: ...  # whatever this surface compares to tell "the screen changed"
+    def changed(self, before: Any, after: Any) -> bool: ...
     def verify(self, kind: str, value: str) -> Optional[tuple[str, str]]: ...
 
 
@@ -91,7 +92,7 @@ class Session:
     surface: Any = None
     plan: list[str] = field(default_factory=list)
     done: set[int] = field(default_factory=set)
-    baseline: bytes = b""  # the screen when the current plan step started
+    baseline: Any = None  # the surface's state when the current plan step started
     steps: int = 0
 
     # --- tools ---------------------------------------------------------------
@@ -116,7 +117,7 @@ class Session:
     def set_plan(self, steps: list[str]) -> str:
         self.plan = [str(s).strip() for s in steps if str(s).strip()][:12]
         self.done = set()
-        self.baseline = self.surface.small() if self.surface else b""
+        self.baseline = self.surface.state() if self.surface else None
         self.events("plan", {"app": self.target, "steps": self.plan})
         return "Plan recorded:\n" + "\n".join(f"{i}. {s}" for i, s in enumerate(self.plan, 1))
 
@@ -145,12 +146,12 @@ class Session:
             move = self.surface.resolve(action, element, x, y, to_x, to_y, text, keys, direction, amount)
         except Refused as e:
             return str(e)
-        before = self.surface.small()
+        before = self.surface.state()
         ok, error = move.run()
         if not ok:
             return f"{move.step.label}: failed ({error or 'unknown error'})."
         self.sleep(0.6)
-        changed = differs(before, self.surface.small())
+        changed = self.surface.changed(before, self.surface.state())
         self.steps += 1
         params = {"n": self.steps, "kind": move.step.kind, "label": move.step.label, "note": "",
                   "channel": move.step.channel}
@@ -168,7 +169,7 @@ class Session:
         if verdict != "verified":
             return f"NOT verified: {summary}. The step is not done; fix it and check again."
         self.done.add(step)
-        self.baseline = self.surface.small() if self.surface else b""  # the next step is judged from here
+        self.baseline = self.surface.state() if self.surface else None  # the next step is judged from here
         self.events("check", {"step": step})
         left = [i for i in range(1, len(self.plan) + 1) if i not in self.done]
         return f"Step {step} verified: {summary}." + (f" Remaining steps: {left}." if left else " Every step is verified.")
@@ -184,9 +185,9 @@ class Session:
         if kind == "file":
             return self._verify_file(value, min_bytes)
         if kind == "changed":
-            if not self.baseline or self.surface is None:
+            if self.baseline is None or self.surface is None:
                 return "contradicted", "no starting screen for this step (open something and record a plan first)"
-            if differs(self.baseline, self.surface.small()):
+            if self.surface.changed(self.baseline, self.surface.state()):
                 return "verified", "the screen changed since this step started"
             return "contradicted", "the screen looks the same as when this step started"
         found = self.surface.verify(kind, value) if self.surface else None
@@ -214,11 +215,17 @@ class Session:
         return None
 
 
-def differs(a: bytes, b: bytes, threshold: float = 1.5) -> bool:
-    """Mean absolute difference of two same-size grayscale thumbnails, in grey levels."""
+THUMB = (160, 90)  # grayscale thumbnail size used to compare screens
+
+
+def differs(a: bytes, b: bytes, mean_threshold: float = 1.5, strong: int = 48, strong_pixels: int = 3) -> bool:
+    """Two same-size grayscale thumbnails differ if the average moved, OR a few pixels moved a lot:
+    a short line of new text barely moves the average (seen in the web tests), but it does
+    flip a handful of pixels hard."""
     if not a or not b or len(a) != len(b):
         return a != b
-    return sum(abs(x - y) for x, y in zip(a, b)) / len(a) > threshold
+    deltas = [abs(x - y) for x, y in zip(a, b)]
+    return sum(deltas) / len(deltas) > mean_threshold or sum(d > strong for d in deltas) >= strong_pixels
 
 
 def ascii_only(text: str) -> None:

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .action.schema import Action, ActionType
-from .session import Move, Refused, Shot, Step, ascii_only
+from .session import THUMB, Move, Refused, Shot, Step, ascii_only, differs
 
 IMAGE_EDGE = 1280  # long edge of the screenshot the model sees
 
@@ -69,8 +69,11 @@ class DesktopSurface:
                 f"Elements (act on them by id; only named ones):\n{listing}")
         return text, self.shot
 
-    def small(self) -> bytes:
+    def state(self) -> bytes:
         return self.shoot().small
+
+    def changed(self, before: bytes, after: bytes) -> bool:
+        return differs(before, after)
 
     def verify(self, kind: str, value: str) -> Optional[tuple[str, str]]:
         if kind != "text":
@@ -192,7 +195,7 @@ def real_desktop() -> DesktopSurface:
         image = Image.open(io.BytesIO(s.png_bytes)).convert("RGB")
         buf = io.BytesIO()
         image.save(buf, "JPEG", quality=80)
-        small = image.convert("L").resize((96, 54)).tobytes()
+        small = image.convert("L").resize(THUMB).tobytes()
         return Shot(buf.getvalue(), s.scaled_size, s.to_real_coords, small)
 
     def focus(word: str) -> bool:
