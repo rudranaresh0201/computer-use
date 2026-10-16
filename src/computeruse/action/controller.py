@@ -81,8 +81,15 @@ class ActionController:
         elif t == ActionType.LEFT_CLICK_DRAG:
             sx, sy = action.start_coordinate
             ex, ey = action.coordinate
-            pyautogui.moveTo(sx, sy, duration=0.1)
-            pyautogui.dragTo(ex, ey, duration=0.3, button="left")
+            # Paint and other canvases drop a drag whose press comes too fast after a tool click:
+            # arrive, settle, press, move in steps, settle, release (seen live on 2026-10-16).
+            pyautogui.moveTo(sx, sy, duration=0.15)
+            time.sleep(0.15)
+            pyautogui.mouseDown(button="left")
+            time.sleep(0.1)
+            pyautogui.moveTo(ex, ey, duration=0.45)
+            time.sleep(0.1)
+            pyautogui.mouseUp(button="left")
 
         elif t == ActionType.TYPE:
             pyautogui.typewrite(action.text, interval=0.01)

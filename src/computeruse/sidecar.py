@@ -307,7 +307,9 @@ def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") ->
         if brain == "claude":
             from .claude_brain import run_claude
 
-            return run_claude(goal, app, sidecar.notify, should_stop)
+            import os
+
+            return run_claude(goal, app, sidecar.notify, should_stop, model=os.environ.get("CU_CLAUDE_MODEL") or None)
         return run_task(goal, app, model, max_steps, on_step=on_step, should_stop=should_stop,
                         plan=plan, on_check=on_check)
 

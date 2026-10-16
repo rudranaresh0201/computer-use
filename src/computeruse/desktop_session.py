@@ -77,6 +77,7 @@ class DesktopSession:
     elements: dict[str, Any] = field(default_factory=dict)
     shot: Optional[Shot] = None
     steps: int = 0
+    baseline: bytes = b""  # the screen when the current plan step started
 
     # --- tools ---------------------------------------------------------------
 
@@ -88,13 +89,14 @@ class DesktopSession:
             return f"Unknown app {app!r}. Choose one of: {', '.join(sorted(self.apps))}."
         self.window = self.launch(app)
         self.app = app
-        self.events("started", {"app": app, "goal": ""})
+        self.events("started", {"app": app})
         return f"{app} is open and in front (window title contains {self.window!r}). Observe it next."
 
     def set_plan(self, steps: list[str]) -> str:
         self.plan = [str(s).strip() for s in steps if str(s).strip()][:12]
         self.done = set()
-        self.events("plan", {"app": self.app, "goal": "", "steps": self.plan})
+        self.baseline = self.shoot().small if self.window else b""
+        self.events("plan", {"app": self.app, "steps": self.plan})
         return "Plan recorded:\n" + "\n".join(f"{i}. {s}" for i, s in enumerate(self.plan, 1))
 
     def observe(self) -> tuple[str, bytes]:
@@ -152,6 +154,7 @@ class DesktopSession:
         if verdict != "verified":
             return f"NOT verified: {summary}. The step is not done; fix it and check again."
         self.done.add(step)
+        self.baseline = self.shoot().small  # the next step is judged against the screen from here
         self.events("check", {"step": step})
         left = [i for i in range(1, len(self.plan) + 1) if i not in self.done]
         return f"Step {step} verified: {summary}." + (f" Remaining steps: {left}." if left else " Every step is verified.")
@@ -257,11 +260,11 @@ class DesktopSession:
                 return "contradicted", f"{value!r} is not in the window"
             return "verified", f"the window shows {hit.strip()[:60]!r}"
         if kind == "changed":
-            if self.shot is None:
-                return "contradicted", "nothing observed yet"
-            if _differs(self.shot.small, self.shoot().small):
-                return "verified", "the screen changed since the last observation"
-            return "contradicted", "the screen looks the same as at the last observation"
+            if not self.baseline:
+                return "contradicted", "no starting screen for this step (record a plan first)"
+            if _differs(self.baseline, self.shoot().small):
+                return "verified", "the screen changed since this step started"
+            return "contradicted", "the screen looks the same as when this step started"
         return "contradicted", f"unknown check kind {kind!r} (use file, text or changed)"
 
     def _find_file(self, value: str) -> Optional[Path]:

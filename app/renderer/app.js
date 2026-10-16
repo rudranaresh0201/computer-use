@@ -240,7 +240,7 @@ window.agent.onEvent((msg) => {
     case 'plan': {
       plan = p.steps.map((text) => ({ text, done: false, actions: [], receipt: null }));
       buildTimeline();
-      $('goal-title').textContent = p.goal;
+      if (p.goal) $('goal-title').textContent = p.goal;
       const t = TARGETS[p.app];
       appLabel = t?.label ?? p.app ?? '';
       room.setScreen({ app: t?.label ?? p.app, goal: p.goal });
@@ -250,7 +250,7 @@ window.agent.onEvent((msg) => {
     case 'started':
       setStatus('working');
       clock(true);
-      room.setScreen({ app: TARGETS[p.app]?.label ?? p.app, goal: p.goal, lines: [], answer: '' });
+      room.setScreen({ app: TARGETS[p.app]?.label ?? p.app, ...(p.goal ? { goal: p.goal } : {}), lines: [], answer: '' });
       room.act('start');
       break;
     case 'thought':

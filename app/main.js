@@ -46,6 +46,7 @@ function startSidecar() {
       pending.delete(msg.id);
     } else if (msg.method) {
       toPage(msg); // a notification: step, started, finished
+      if (msg.method !== 'screen') console.log(`[agent] ${msg.method} ${JSON.stringify(msg.params).slice(0, 300)}`);
     }
   });
   sidecar.stderr.on('data', (d) => process.stderr.write(`[sidecar] ${d}`));

@@ -147,3 +147,15 @@ def test_text_check_reads_the_live_tree():
     s.set_plan(["Pick the rectangle"])
     assert "verified" in s.check(1, "text", "rectangle")
     assert "NOT verified" in s.check(1, "text", "ellipse")
+
+
+def test_changed_is_judged_against_the_screen_when_the_step_started_not_the_last_look():
+    # live bug 2026-10-16: the agent drew, observed, then checked -- "changed since the last
+    # observation" said no, six times, though the house was on the canvas
+    screens = [bytes([0]) * 16] * 3 + [bytes([200]) * 16] * 10
+    s, _, _ = make(screens=screens)
+    s.open("paint")
+    s.set_plan(["Draw the house"])  # baseline: blank
+    s.observe()
+    s.observe()                     # the model looks again after drawing...
+    assert "verified" in s.check(1, "changed")  # ...and the step still counts

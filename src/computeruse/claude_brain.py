@@ -11,6 +11,7 @@ Two streams reach the window, and they never mix:
     `receipt`, `check`, forwarded as they are written.
 The model's tool results stay plain text; the window still sees every step, screen and receipt.
 Stop kills the whole process tree (claude -> node -> the MCP server), so nothing keeps clicking.
+No extra system prompt: the MCP server's instructions already ask for one sentence before each action.
 """
 
 from __future__ import annotations
@@ -28,10 +29,6 @@ from pathlib import Path
 from typing import Optional
 
 TOOLS = ("targets", "open", "plan", "observe", "act", "check")
-APPEND_PROMPT = (
-    "You are the reasoning of a desktop agent shown in a 3D app. The person reads every sentence you write "
-    "as your thinking, live, so before each tool call write ONE short plain sentence about what you are doing "
-    "and why. Finish with one sentence saying what was done.")
 
 Emit = Callable[[str, dict], None]
 
@@ -121,7 +118,6 @@ def claude_command(goal: str, app: Optional[str], mcp_config: Path, model: Optio
     prompt = goal if not app else f"{goal}\n\n(Use the app: {app}.)"
     cmd = [exe, "-p", prompt, "--mcp-config", str(mcp_config), "--strict-mcp-config", "--tools", "",
            "--allowedTools", ",".join(f"mcp__computeruse__{t}" for t in TOOLS),
-           "--append-system-prompt", APPEND_PROMPT,
            "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
     if model:
         cmd += ["--model", model]

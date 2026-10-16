@@ -85,7 +85,7 @@ def build_server(session=None):
     @server.tool(description=(
         "Prove a plan step (1-based) is done. kind: 'file' (value = file name or path; it must exist, be "
         "non-empty and freshly saved), 'text' (value must appear in the window), or 'changed' (the screen "
-        "changed since the last observe). Only a verified check ticks the step."))
+        "changed since this step started). Only a verified check ticks the step."))
     async def check(step: int, kind: str, value: str = "", min_bytes: int = 1) -> str:
         return await on_worker(lambda s: s.check(step, kind, value, min_bytes))
 
