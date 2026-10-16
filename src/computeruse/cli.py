@@ -132,6 +132,7 @@ def main() -> None:
                                 help="claude: Claude Code drives the MCP server (your subscription); groq: the free fallback")
 
     subparsers.add_parser("mcp", help="The desktop as an MCP server over stdio, for Claude Code or any MCP host")
+    subparsers.add_parser("chrome", help="Open the agent's own Chrome profile to sign in (Google, Tinkercad) once")
 
     capture_parser = subparsers.add_parser(
         "capture", help="Save a screenshot + the full UIA tree of the app you click on (Tests C/D)"
@@ -165,6 +166,17 @@ def main() -> None:
         from .desktop_run import main as desktop_main
 
         sys.exit(desktop_main(args.goal, args.app, args.model, args.max_steps))
+    elif args.command == "chrome":
+        from .web.cdp import PORT, PROFILE, endpoint, launch
+        from .web_surface import SIGN_IN
+
+        if endpoint(PORT):
+            print("The agent's Chrome is already running. Sign in there, then leave it open or close it.")
+        else:
+            launch(urls=SIGN_IN)
+            print(f"Opened the agent's Chrome (profile {PROFILE}).")
+            print("Sign in to Google and Tinkercad in it, by hand. The agent uses this profile only;")
+            print("your everyday Chrome is untouched. You can close the window afterwards.")
     elif args.command == "mcp":
         from .mcp_server import main as mcp_main
 

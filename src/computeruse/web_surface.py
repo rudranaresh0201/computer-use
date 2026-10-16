@@ -23,6 +23,19 @@ from urllib.parse import urlparse
 
 from .session import THUMB, Move, Refused, Shot, Step, differs
 
+SITES = {
+    # name: (where it starts, what the model is told it is for)
+    "sheets": ("https://docs.google.com/spreadsheets/u/0/",
+               "Google Sheets: spreadsheets, formulas, charts (the grid is drawn on a canvas: cells by x, y or keys)"),
+    "docs": ("https://docs.google.com/document/u/0/", "Google Docs: write and format documents"),
+    "gmail": ("https://mail.google.com/mail/u/0/#inbox",
+              "Gmail: read mail and write drafts; sending waits for the person's approval"),
+    "tinkercad": ("https://www.tinkercad.com/dashboard",
+                  "Tinkercad: 3D design in the browser (the workplane is WebGL: shapes by drag and keys)"),
+    "excalidraw": ("https://excalidraw.com/", "Excalidraw: whiteboard diagrams (the canvas is invisible to the tree)"),
+}
+SIGN_IN = ("https://accounts.google.com/", "https://www.tinkercad.com/login")
+
 KEY_NAMES = {
     "ctrl": "Control", "control": "Control", "alt": "Alt", "shift": "Shift", "win": "Meta", "cmd": "Meta",
     "meta": "Meta", "enter": "Enter", "return": "Enter", "esc": "Escape", "escape": "Escape", "tab": "Tab",

@@ -322,5 +322,10 @@ def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") ->
     label = "demo" if demo else "claude" if brain == "claude" else f"groq · {model}"
     print(f"sidecar ready (brain: {label}); reading JSON-RPC on stdin", file=sys.stderr)
     claude = brain == "claude" and not demo
-    sidecar = Sidecar(runner, list(APPS), protocol, planner=None if claude else planner, brain=label, app_optional=claude)
+    targets = list(APPS)
+    if claude:  # the claude brain drives websites too (web_surface.SITES), through the agent's Chrome
+        from .web_surface import SITES
+
+        targets += list(SITES)
+    sidecar = Sidecar(runner, targets, protocol, planner=None if claude else planner, brain=label, app_optional=claude)
     sidecar.serve(sys.stdin)

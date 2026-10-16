@@ -31,6 +31,7 @@ const TARGETS = {
   gmail: { label: 'Gmail', icon: 'mail' },
   tinkercad: { label: 'Tinkercad', icon: 'box' },
   blender: { label: 'Blender', icon: 'layers' },
+  excalidraw: { label: 'Excalidraw', icon: 'paintbrush' },
 };
 const EXAMPLES = [
   'Draw a house with a sun and a tree in Paint, then save it as house.png',

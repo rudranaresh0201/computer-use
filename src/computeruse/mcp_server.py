@@ -97,8 +97,16 @@ def build_session(events):
     from .desktop_session import real_desktop
     from .session import Session
 
+    import time
+
+    from .web.cdp import AgentChrome
+    from .web_surface import SITES, WebSurface
+
     desktop = real_desktop()
-    return Session(surfaces={name: desktop for name in desktop.apps}, events=events)
+    chrome = AgentChrome()  # started or attached on the first web target, not before
+    web = WebSurface(SITES, page=chrome.page, settle=lambda: time.sleep(0.5))
+    surfaces = {name: desktop for name in desktop.apps} | {name: web for name in SITES}
+    return Session(surfaces=surfaces, events=events)
 
 
 def main() -> None:
