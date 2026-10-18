@@ -37,6 +37,12 @@ def main() -> None:
     args = ap.parse_args()
     if not (os.environ.get("CU_EYES_URL") and os.environ.get("CU_EYES_TOKEN")):
         raise SystemExit("set CU_EYES_URL and CU_EYES_TOKEN (the eyes server prints both)")
+    from computeruse.eyes_remote import RemoteEyes
+
+    try:  # the final take of 2026-10-18 ran with the Kaggle session already gone: no eyes, no take
+        print("eyes:", RemoteEyes.from_env().health(), flush=True)
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"the eyes server is down ({str(e)[:120]}): restart the Kaggle notebook first")
     print(f"starting in {args.delay}s: minimise everything except what should be in the video", flush=True)
     time.sleep(args.delay)
     out = ROOT / "runs" / "agent" / "live" / f"demo-{time.strftime('%Y%m%d-%H%M%S')}.mp4"

@@ -183,6 +183,9 @@ class Router:
         if has_xy and arm == "paper":
             return None, (x, y), "vision", f"grounder had no answer for {description!r}; the brain's x, y", seconds
         why = "the grounder is not running" if self.eyes is None else "the grounder found nothing readable"
+        if arm == "paper":  # the seeing brain may back its description with its own reading of the screen
+            raise Unroutable(f"{why} for {description!r}; describe it more simply, or send the same target together "
+                             "with x, y (screenshot pixels), used only when the grounder has no answer")
         raise Unroutable(f"{why} for {description!r}; describe it another way or use a named element")
 
     def _drag(self, intent: Intent, boxes: Boxes, width: int) -> Grounded:
