@@ -208,6 +208,21 @@ class WebSurface:
         return Move(self._run(lambda: page.mouse.click(px, py, button=button, click_count=clicks)),
                     Step("click", f"{action.replace('_', ' ')} ({x}, {y})", "vision", self._frac(x, y)))
 
+    def boxes(self) -> dict[str, tuple[str, str, tuple[int, int, int, int]]]:
+        """Every element with a box on screen as ref -> (name, role, box in screenshot pixels).
+        Page boxes are page pixels; the screenshot is the viewport, so subtract the scroll."""
+        sx, sy, w, h = self.viewport
+        out = {}
+        for ref, e in self.elements.items():
+            if not e.box or e.box[2] <= 0 or e.box[3] <= 0:
+                continue
+            x, y, bw, bh = e.box
+            left, top = x - sx, y - sy
+            if left + bw < 0 or top + bh < 0 or left > w or top > h:
+                continue
+            out[ref] = (e.name.strip(), e.role, (left, top, left + bw, top + bh))
+        return out
+
     def risk(self, action, element, x, y, text, keys) -> Optional[str]:
         """Why this needs the person's yes, or None. A click by x, y is judged by what is under
         that point, so coordinates are no way around the gate."""

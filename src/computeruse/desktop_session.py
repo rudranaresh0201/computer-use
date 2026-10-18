@@ -118,9 +118,31 @@ class DesktopSurface:
         kind = {"click": ActionType.LEFT_CLICK, "double_click": ActionType.DOUBLE_CLICK, "right_click": ActionType.RIGHT_CLICK}[action]
         return Move(run(Action(kind, coordinate=where)), Step("click", f"{action.replace('_', ' ')} {label}", channel, frac))
 
+    def boxes(self) -> dict[str, tuple[str, str, tuple[int, int, int, int]]]:
+        """Every listed element as ref -> (name, role, box in the model's screenshot pixels): what the
+        router (agent/router.py) needs to apply the paper's rules without knowing about screens."""
+        if self.shot is None:
+            return {}
+        w, h = self.shot.size
+        x0, y0 = self.shot.to_real(0, 0)
+        x1, y1 = self.shot.to_real(w - 1, h - 1)
+        sx, sy = (x1 - x0) / max(w - 1, 1) or 1, (y1 - y0) / max(h - 1, 1) or 1
+        out = {}
+        for ref, e in self.elements.items():
+            rect = getattr(e, "rect", None)
+            if rect is None:  # test fakes carry only a centre
+                cx, cy = e.center
+                rect = (cx - 1, cy - 1, cx + 1, cy + 1)
+            left, top, right, bottom = rect
+            out[ref] = ((getattr(e, "name", "") or "").strip(), e.control_type,
+                        (round((left - x0) / sx), round((top - y0) / sy), round((right - x0) / sx), round((bottom - y0) / sy)))
+        return out
+
     def risk(self, action, element, x, y, text, keys) -> Optional[str]:
         e = self.elements.get(element) if element is not None else None
         label = (getattr(e, "name", "") or "") if e is not None else ""
+        if e is None and x is not None and y is not None:
+            label = self._label_at(x, y)  # coordinates are no way around the gate (as on the web)
         if action == "type" and SECRET_FIELDS.search(label):
             return f"typing into {label!r}"
         if action in ("click", "double_click") and RISKY_WORDS.search(label):
@@ -128,6 +150,16 @@ class DesktopSurface:
         return None
 
     # --- internals --------------------------------------------------------------
+
+    def _label_at(self, x, y) -> str:
+        """The name of the smallest named element whose box holds screenshot point (x, y)."""
+        best, best_area = "", None
+        for name, _, (l, t, r, b) in self.boxes().values():
+            if name and l <= x <= r and t <= y <= b:
+                area = (r - l) * (b - t)
+                if best_area is None or area < best_area:
+                    best, best_area = name, area
+        return best
 
     def _runner(self, *actions: Action) -> Callable[[], tuple[bool, str]]:
         def run() -> tuple[bool, str]:

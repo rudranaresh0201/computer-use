@@ -149,16 +149,26 @@ class Session:
             return "The eyes are not running here: read x, y off the screenshot yourself.", b""
         if self.shot is None or not self.surface.observed:
             return "Observe first: the eyes look at the latest screenshot.", b""
-        point, seconds = self.eyes(self.shot.jpeg, description)
+        point, seconds = self.ground_with_eyes(description)
         if point is None:
             return f"The eyes found nothing readable for {description!r} ({seconds:.1f}s). Use the screenshot.", b""
         x, y = point
-        self.located[(x, y)] = description
-        w, h = self.shot.size
-        self.events("locate", {"what": description, "x": x / w, "y": y / h, "seconds": round(seconds, 1)})
         return (f"The eyes put {description!r} at x={x}, y={y} ({seconds:.1f}s). The zoom shows a ring there: "
                 f"if it sits on the right thing, act with exactly these x, y; if not, use your own reading "
                 f"of the screenshot."), zoom(self.shot.jpeg, (x, y))
+
+    def ground_with_eyes(self, description: str) -> tuple[Optional[tuple[int, int]], float]:
+        """Our grounder on the latest screenshot: the point in its pixels (or None) and the seconds it
+        took. The point is remembered, so an act() on exactly it is reported as channel "eyes"."""
+        if self.eyes is None or self.shot is None:
+            return None, 0.0
+        point, seconds = self.eyes(self.shot.jpeg, description)
+        if point is not None:
+            x, y = point
+            self.located[(x, y)] = description
+            w, h = self.shot.size
+            self.events("locate", {"what": description, "x": x / w, "y": y / h, "seconds": round(seconds, 1)})
+        return point, seconds
 
     def act(self, action: str, element: Optional[str] = None, x: Optional[int] = None, y: Optional[int] = None,
             to_x: Optional[int] = None, to_y: Optional[int] = None, text: Optional[str] = None,
