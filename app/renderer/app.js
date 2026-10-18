@@ -387,7 +387,15 @@ function pickTarget(name) {
   $('goal').focus();
   const autorun = params.get('autorun');
   if (autorun) {
-    $('goal').value = autorun;
+    // typed out a letter at a time (a recording shows the prompt being written), then run
+    const box = $('goal');
+    box.value = '';
+    await new Promise((r) => setTimeout(r, 1500));
+    for (const ch of autorun) {
+      box.value += ch;
+      await new Promise((r) => setTimeout(r, 38));
+    }
+    await new Promise((r) => setTimeout(r, 700));
     run(autorun);
   }
 })();

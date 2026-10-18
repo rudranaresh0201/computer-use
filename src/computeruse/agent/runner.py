@@ -238,8 +238,14 @@ def _run_one(goal: str, target: Optional[str], events: Callable[[str, dict], Non
         events("started", {"goal": goal, "app": target})
         folder = OUT / time.strftime("%Y%m%d-%H%M%S")
         web = getattr(session.surface, "kind", "") == "web"
-        place_target(target, web, chrome)
+        # set the app up at full width, then move it: a narrow Tinkercad dashboard hides "Create" in a menu
         prep = prepare(target, goal, chrome.page if web else None, folder, fresh, expect, connect)
+        place_target(target, web, chrome)
+        if target == "tinkercad" and web:
+            from .checks import dismiss_tips
+
+            chrome.page().wait_for_timeout(1500)
+            dismiss_tips(chrome.page())
         arm = brain_arm(brain_kind, arm)
         brain = brain or make_brain(brain_kind, arm, model)
         router = Router(arm, (lambda d: session.ground_with_eyes(d)) if eyes else None)

@@ -195,8 +195,9 @@ kbd { font: 500 10.5px var(--mono); color: var(--text-2); padding: 2px 6px; bord
 
 /* --- narrow window (the recording layout, CU_LAYOUT=split): plan on top, panels below -------- */
 @media (max-width: 860px) {
-  .run { right: 0; width: auto; bottom: auto; height: 36%; padding: 14px 20px 10px; }
-  .side { top: calc(64px + 36%); left: 16px; right: 16px; width: auto; max-height: calc(64% - 64px - 150px); }
+  .top { flex-wrap: wrap; row-gap: 6px; }
+  .run { top: 112px; right: 0; width: auto; bottom: auto; height: 32%; padding: 14px 20px 10px; }
+  .side { top: calc(112px + 32%); left: 16px; right: 16px; width: auto; max-height: calc(68% - 112px - 150px); }
   .thoughts { max-height: 96px; }
   .kill span, .kill kbd:nth-child(-n+2) { display: none; }
   .targets { display: none; }  /* the goal is typed; the chips would cover the screen preview */

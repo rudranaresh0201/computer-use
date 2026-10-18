@@ -185,6 +185,18 @@ def circuit_fresh(page) -> None:
     page.keyboard.press("Escape")  # the "new component" tip
 
 
+def dismiss_tips(page) -> None:
+    """Close Tinkercad's onboarding bubbles ("Discover pre-made circuits...", "NEW micro:bit component")."""
+    for text in ("Discover pre-made circuits", "NEW micro:bit component"):
+        try:
+            tip = page.get_by_text(text).first
+            if tip.is_visible():
+                tip.locator("xpath=ancestor::*[.//button][1]//button").first.click(timeout=3000)
+                page.wait_for_timeout(500)
+        except Exception:  # noqa: BLE001 -- a bubble that will not close is the brain's to handle
+            pass
+
+
 def circuit_outro(page) -> None:
     """After the verdict, for the video: the schematic, then the parts list, then back to the board."""
     for view in ("Schematic", "Components", "Circuits"):

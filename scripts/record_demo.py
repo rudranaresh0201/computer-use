@@ -32,6 +32,8 @@ def main() -> None:
     ap.add_argument("--delay", type=int, default=45)
     ap.add_argument("--brain", default=os.environ.get("CU_LOOP_BRAIN", "claude"))
     ap.add_argument("--max-minutes", type=float, default=20)
+    ap.add_argument("--goal", default="", help="typed into the window by itself; the take then ends on its own")
+    ap.add_argument("--hold", type=float, default=10, help="seconds to stay on the verdict before stopping")
     args = ap.parse_args()
     if not (os.environ.get("CU_EYES_URL") and os.environ.get("CU_EYES_TOKEN")):
         raise SystemExit("set CU_EYES_URL and CU_EYES_TOKEN (the eyes server prints both)")
@@ -41,14 +43,23 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     recorder = start_recording(out)
     env = os.environ | {"CU_LAYOUT": "split", "CU_BRAIN": "loop", "CU_LOOP_BRAIN": args.brain}
+    if args.goal:
+        env["CU_AUTORUN"] = args.goal
     electron = ROOT / "app" / "node_modules" / ".bin" / "electron.cmd"
+    log = out.with_suffix(".log")
     window = subprocess.Popen([str(electron), "."], cwd=ROOT / "app", env=env,
-                              stdout=open(out.with_suffix(".log"), "w"), stderr=subprocess.STDOUT)
-    print(f"recording to {out}; type the goal in the window, close the window when it is done", flush=True)
-    try:
-        window.wait(timeout=args.max_minutes * 60)
-    except subprocess.TimeoutExpired:
-        window.kill()
+                              stdout=open(log, "w", encoding="utf-8"), stderr=subprocess.STDOUT)
+    print(f"recording to {out}", flush=True)
+    deadline = time.time() + args.max_minutes * 60
+    while window.poll() is None and time.time() < deadline:
+        time.sleep(2)
+        text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+        if args.goal and "[agent] finished" in text:  # the window printed the verdict: hold on it, then end
+            print("verdict reached", flush=True)
+            time.sleep(args.hold)
+            break
+    if window.poll() is None:  # electron.cmd starts electron.exe: end the whole tree
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(window.pid)], capture_output=True)
     stop_recording(recorder)
     print(f"saved {out} ({out.stat().st_size / 1e6:.1f} MB)", flush=True)
 
