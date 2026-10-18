@@ -1,0 +1,557 @@
+{
+ "test_a": {
+  "C1": {
+   "n": 200,
+   "coverage": 100.0,
+   "precision_when_answering": 100.0,
+   "vision_on_answered": 94.0,
+   "help": 6.0,
+   "harm": 0.0,
+   "fallback_minus_vision": 6.0,
+   "accuracy": {
+    "tree": 100.0,
+    "vlm_zero_shot": 60.5,
+    "vlm": 94.0,
+    "fallback": 100.0,
+    "snap": 94.5
+   }
+  },
+  "C2": {
+   "n": 200,
+   "coverage": 4.5,
+   "precision_when_answering": 0.0,
+   "vision_on_answered": 55.6,
+   "help": 0.0,
+   "harm": 2.5,
+   "fallback_minus_vision": -2.5,
+   "accuracy": {
+    "tree": 0.0,
+    "vlm_zero_shot": 7.5,
+    "vlm": 40.0,
+    "fallback": 37.5,
+    "snap": 41.0
+   }
+  },
+  "C3": {
+   "n": 200,
+   "coverage": 6.0,
+   "precision_when_answering": 0.0,
+   "vision_on_answered": 25.0,
+   "help": 0.0,
+   "harm": 1.5,
+   "fallback_minus_vision": -1.5,
+   "accuracy": {
+    "tree": 0.0,
+    "vlm_zero_shot": 0.0,
+    "vlm": 31.0,
+    "fallback": 29.5,
+    "snap": 33.0
+   }
+  },
+  "C4": {
+   "n": 200,
+   "coverage": 23.5,
+   "precision_when_answering": 0.0,
+   "vision_on_answered": 100.0,
+   "help": 0.0,
+   "harm": 23.5,
+   "fallback_minus_vision": -23.5,
+   "accuracy": {
+    "tree": 0.0,
+    "vlm_zero_shot": 47.5,
+    "vlm": 99.0,
+    "fallback": 75.5,
+    "snap": 99.0
+   }
+  },
+  "C5": {
+   "n": 200,
+   "coverage": 100.0,
+   "precision_when_answering": 26.5,
+   "vision_on_answered": 65.0,
+   "help": 11.0,
+   "harm": 49.5,
+   "fallback_minus_vision": -38.5,
+   "accuracy": {
+    "tree": 26.5,
+    "vlm_zero_shot": 40.5,
+    "vlm": 65.0,
+    "fallback": 26.5,
+    "snap": 70.5
+   }
+  },
+  "all": {
+   "n": 1000,
+   "coverage": 46.8,
+   "precision_when_answering": 54.1,
+   "vision_on_answered": 79.7,
+   "help": 3.4,
+   "harm": 15.4,
+   "fallback_minus_vision": -12.0
+  }
+ },
+ "test_b": {
+  "test_same_app/intact": {
+   "n": 246,
+   "coverage": 100.0,
+   "precision_when_answering": 85.0,
+   "vision_on_answered": 64.6,
+   "help": 28.9,
+   "harm": 8.5,
+   "fallback_minus_vision": 20.3,
+   "accuracy": {
+    "tree": 85.0,
+    "vlm": 64.6,
+    "fallback": 85.0,
+    "snap": 67.9,
+    "guarded": 85.0
+   }
+  },
+  "test_same_app/nameless": {
+   "n": 246,
+   "coverage": 35.8,
+   "precision_when_answering": 1.1,
+   "vision_on_answered": 52.3,
+   "help": 0.0,
+   "harm": 18.3,
+   "fallback_minus_vision": -18.3,
+   "accuracy": {
+    "tree": 0.4,
+    "vlm": 64.6,
+    "fallback": 46.3,
+    "snap": 67.9,
+    "guarded": 63.8
+   }
+  },
+  "test_same_app/absent": {
+   "n": 246,
+   "coverage": 35.8,
+   "precision_when_answering": 1.1,
+   "vision_on_answered": 52.3,
+   "help": 0.0,
+   "harm": 18.3,
+   "fallback_minus_vision": -18.3,
+   "accuracy": {
+    "tree": 0.4,
+    "vlm": 64.6,
+    "fallback": 46.3,
+    "snap": 47.6,
+    "guarded": 63.8
+   }
+  },
+  "test_held_out_app/intact": {
+   "n": 790,
+   "coverage": 98.7,
+   "precision_when_answering": 94.0,
+   "vision_on_answered": 46.8,
+   "help": 48.2,
+   "harm": 1.6,
+   "fallback_minus_vision": 46.6,
+   "accuracy": {
+    "tree": 92.8,
+    "vlm": 46.5,
+    "fallback": 93.0,
+    "snap": 58.0,
+    "guarded": 77.8
+   }
+  },
+  "test_held_out_app/nameless": {
+   "n": 790,
+   "coverage": 25.8,
+   "precision_when_answering": 3.9,
+   "vision_on_answered": 40.7,
+   "help": 0.3,
+   "harm": 9.7,
+   "fallback_minus_vision": -9.5,
+   "accuracy": {
+    "tree": 1.0,
+    "vlm": 46.5,
+    "fallback": 37.0,
+    "snap": 58.0,
+    "guarded": 45.3
+   }
+  },
+  "test_held_out_app/absent": {
+   "n": 790,
+   "coverage": 25.8,
+   "precision_when_answering": 3.9,
+   "vision_on_answered": 40.7,
+   "help": 0.3,
+   "harm": 9.7,
+   "fallback_minus_vision": -9.5,
+   "accuracy": {
+    "tree": 1.0,
+    "vlm": 46.5,
+    "fallback": 37.0,
+    "snap": 24.8,
+    "guarded": 45.3
+   }
+  }
+ },
+ "gate_audit": {
+  "C1": {
+   "named": {
+    "share": 94.0,
+    "llm_precision": 93.6,
+    "vision_on_these": 97.9
+   },
+   "none": {
+    "share": 4.0,
+    "llm_precision": 0.0,
+    "vision_on_these": 100.0
+   },
+   "nameless": {
+    "share": 2.0,
+    "llm_precision": 0.0,
+    "vision_on_these": 100.0
+   },
+   "n": 50,
+   "tokens_per_item": 545
+  },
+  "C2": {
+   "nameless": {
+    "share": 16.0,
+    "llm_precision": 12.5,
+    "vision_on_these": 50.0
+   },
+   "none": {
+    "share": 70.0,
+    "llm_precision": 0.0,
+    "vision_on_these": 42.9
+   },
+   "named": {
+    "share": 14.0,
+    "llm_precision": 0.0,
+    "vision_on_these": 0.0
+   },
+   "n": 50,
+   "tokens_per_item": 568
+  },
+  "C3": {
+   "named": {
+    "share": 88.0,
+    "llm_precision": 100.0,
+    "vision_on_these": 25.0
+   },
+   "nameless": {
+    "share": 2.0,
+    "llm_precision": 0.0,
+    "vision_on_these": 100.0
+   },
+   "none": {
+    "share": 10.0,
+    "llm_precision": 0.0,
+    "vision_on_these": 40.0
+   },
+   "n": 50,
+   "tokens_per_item": 557
+  },
+  "C4": {
+   "none": {
+    "share": 100.0,
+    "llm_precision": 0.0,
+    "vision_on_these": 100.0
+   },
+   "n": 50,
+   "tokens_per_item": 546
+  },
+  "C5": {
+   "named": {
+    "share": 100.0,
+    "llm_precision": 100.0,
+    "vision_on_these": 68.0
+   },
+   "n": 50,
+   "tokens_per_item": 560
+  },
+  "all": {
+   "nameless": {
+    "share": 4.0,
+    "llm_precision": 10.0,
+    "vision_on_these": 60.0
+   },
+   "named": {
+    "share": 59.2,
+    "llm_precision": 93.2,
+    "vision_on_these": 61.5
+   },
+   "none": {
+    "share": 36.8,
+    "llm_precision": 0.0,
+    "vision_on_these": 75.0
+   },
+   "n": 250,
+   "tokens_per_item": 555
+  }
+ },
+ "grounder": {
+  "test_same_app": {
+   "n": 246,
+   "by_control_type": {
+    "Button": {
+     "n": 77,
+     "fine_tuned": 51.9,
+     "zero_shot": 6.5
+    },
+    "TreeItem": {
+     "n": 53,
+     "fine_tuned": 92.5,
+     "zero_shot": 0.0
+    },
+    "Edit": {
+     "n": 40,
+     "fine_tuned": 62.5,
+     "zero_shot": 25.0
+    },
+    "ListItem": {
+     "n": 18,
+     "fine_tuned": 50.0,
+     "zero_shot": 33.3
+    },
+    "ComboBox": {
+     "n": 18,
+     "fine_tuned": 66.7,
+     "zero_shot": 61.1
+    },
+    "MenuItem": {
+     "n": 17,
+     "fine_tuned": 29.4,
+     "zero_shot": 0.0
+    }
+   },
+   "by_size_quartile": [
+    {
+     "n": 61,
+     "median_area_units2": 858,
+     "fine_tuned": 52.5,
+     "zero_shot": 0.0
+    },
+    {
+     "n": 61,
+     "median_area_units2": 1800,
+     "fine_tuned": 75.4,
+     "zero_shot": 0.0
+    },
+    {
+     "n": 61,
+     "median_area_units2": 3498,
+     "fine_tuned": 67.2,
+     "zero_shot": 24.6
+    },
+    {
+     "n": 63,
+     "median_area_units2": 9225,
+     "fine_tuned": 63.5,
+     "zero_shot": 31.7
+    }
+   ],
+   "misses": 87,
+   "miss_near_le10": 10.3,
+   "miss_mid_10_50": 35.6,
+   "miss_far_gt50": 54.0,
+   "median_target_area_pct_of_screen": 0.221
+  },
+  "test_held_out_app": {
+   "n": 790,
+   "by_control_type": {
+    "Button": {
+     "n": 278,
+     "fine_tuned": 36.0,
+     "zero_shot": 1.1
+    },
+    "MenuItem": {
+     "n": 240,
+     "fine_tuned": 65.0,
+     "zero_shot": 2.1
+    },
+    "TreeItem": {
+     "n": 79,
+     "fine_tuned": 29.1,
+     "zero_shot": 0.0
+    },
+    "CheckBox": {
+     "n": 53,
+     "fine_tuned": 52.8,
+     "zero_shot": 3.8
+    },
+    "Edit": {
+     "n": 38,
+     "fine_tuned": 21.1,
+     "zero_shot": 0.0
+    },
+    "TabItem": {
+     "n": 33,
+     "fine_tuned": 39.4,
+     "zero_shot": 0.0
+    },
+    "ComboBox": {
+     "n": 29,
+     "fine_tuned": 69.0,
+     "zero_shot": 0.0
+    },
+    "RadioButton": {
+     "n": 27,
+     "fine_tuned": 29.6,
+     "zero_shot": 0.0
+    }
+   },
+   "by_size_quartile": [
+    {
+     "n": 197,
+     "median_area_units2": 540,
+     "fine_tuned": 15.2,
+     "zero_shot": 0.0
+    },
+    {
+     "n": 197,
+     "median_area_units2": 891,
+     "fine_tuned": 40.1,
+     "zero_shot": 0.5
+    },
+    {
+     "n": 197,
+     "median_area_units2": 1480,
+     "fine_tuned": 65.5,
+     "zero_shot": 1.5
+    },
+    {
+     "n": 199,
+     "median_area_units2": 4050,
+     "fine_tuned": 64.8,
+     "zero_shot": 4.0
+    }
+   ],
+   "misses": 423,
+   "miss_near_le10": 18.7,
+   "miss_mid_10_50": 33.3,
+   "miss_far_gt50": 48.0,
+   "median_target_area_pct_of_screen": 0.112
+  },
+  "zero_shot_answer_formats": {
+   "point": 1074,
+   "box": 517
+  }
+ },
+ "screenspot_v2": {
+  "zero_shot": {
+   "mobile/text": 16.6,
+   "mobile/icon": 10.9,
+   "desktop/text": 28.4,
+   "desktop/icon": 10.7,
+   "web/text": 23.5,
+   "web/icon": 25.1
+  },
+  "fine_tuned": {
+   "mobile/text": 83.1,
+   "mobile/icon": 55.9,
+   "desktop/text": 73.2,
+   "desktop/icon": 40.0,
+   "web/text": 75.2,
+   "web/icon": 49.3
+  }
+ },
+ "uia_exposure": {
+  "audacity": {
+   "elements": 151,
+   "interactive_named": 56,
+   "interactive_nameless": 2,
+   "window_area_covered_by_named_pct": 7.8
+  },
+  "excalidraw": {
+   "elements": 44,
+   "interactive_named": 17,
+   "interactive_nameless": 0,
+   "window_area_covered_by_named_pct": 6.2
+  },
+  "gimp": {
+   "elements": 7,
+   "interactive_named": 4,
+   "interactive_nameless": 0,
+   "window_area_covered_by_named_pct": 0.4
+  },
+  "git_gui": {
+   "elements": 62,
+   "interactive_named": 12,
+   "interactive_nameless": 0,
+   "window_area_covered_by_named_pct": 1.3
+  },
+  "notepad_pp": {
+   "elements": 68,
+   "interactive_named": 21,
+   "interactive_nameless": 32,
+   "window_area_covered_by_named_pct": 2.2
+  },
+  "paint": {
+   "elements": 173,
+   "interactive_named": 111,
+   "interactive_nameless": 1,
+   "window_area_covered_by_named_pct": 10.7
+  },
+  "vlc": {
+   "elements": 36,
+   "interactive_named": 12,
+   "interactive_nameless": 11,
+   "window_area_covered_by_named_pct": 1.2
+  },
+  "vscode": {
+   "elements": 162,
+   "interactive_named": 71,
+   "interactive_nameless": 0,
+   "window_area_covered_by_named_pct": 37.4
+  }
+ },
+ "learning_curve": [
+  [
+   0,
+   4.0
+  ],
+  [
+   100,
+   42.5
+  ],
+  [
+   200,
+   45.5
+  ],
+  [
+   300,
+   53.0
+  ],
+  [
+   400,
+   55.0
+  ],
+  [
+   500,
+   61.0
+  ],
+  [
+   600,
+   63.0
+  ],
+  [
+   700,
+   64.5
+  ],
+  [
+   800,
+   65.5
+  ],
+  [
+   900,
+   69.5
+  ],
+  [
+   1000,
+   68.0
+  ],
+  [
+   1100,
+   72.5
+  ],
+  [
+   1179,
+   73.0
+  ]
+ ]
+}
