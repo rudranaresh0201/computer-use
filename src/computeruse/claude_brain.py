@@ -28,7 +28,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
-TOOLS = ("targets", "open", "plan", "observe", "act", "check")
+TOOLS = ("targets", "open", "plan", "observe", "locate", "act", "check")
 
 Emit = Callable[[str, dict], None]
 
@@ -127,7 +127,10 @@ def claude_command(goal: str, app: Optional[str], mcp_config: Path, model: Optio
 def mcp_config(events: Path) -> dict:
     server = Path(sys.executable).with_name("computeruse.exe")
     command = [str(server), "mcp"] if server.exists() else [sys.executable, "-m", "computeruse.cli", "mcp"]
-    return {"mcpServers": {"computeruse": {"command": command[0], "args": command[1:], "env": {"CU_EVENTS": str(events)}}}}
+    env = {"CU_EVENTS": str(events)}
+    if os.environ.get("CU_EYES"):  # the grounder is opt-in (RAM); pass the choice on to the server
+        env["CU_EYES"] = os.environ["CU_EYES"]
+    return {"mcpServers": {"computeruse": {"command": command[0], "args": command[1:], "env": env}}}
 
 
 def kill_tree(proc: subprocess.Popen) -> None:

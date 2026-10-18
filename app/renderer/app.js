@@ -270,6 +270,16 @@ window.agent.onEvent((msg) => {
       render();
       break;
     }
+    case 'locate': {
+      // our grounder proposed a point; the click that follows (if the model accepts it) is its own step
+      const a = { kind: 'locate', label: `locate "${p.what}"`, channel: 'eyes', note: `${p.seconds}s on this laptop's CPU` };
+      addAction(a);
+      $('last').textContent = `${humanize(a)} · eyes`;
+      pointAt(p.x, p.y, 'eyes');
+      room.act('locate', { x: p.x, y: p.y, channel: 'eyes' });
+      render();
+      break;
+    }
     case 'receipt':
       if (plan[p.step - 1]) setReceipt(plan[p.step - 1], p);
       render();

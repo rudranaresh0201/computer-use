@@ -16,7 +16,8 @@ class El:
     center: tuple
 
 
-def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None, approve=None):
+def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None, approve=None, eyes=None,
+         jpeg=b"jpeg"):
     done, events = [], []
     screens = list(screens or [])
     tree = [El("Rectangle", "Button", (900, 120)), El("", "Button", (950, 120)), El("File name", "Edit", (700, 900)),
@@ -25,7 +26,7 @@ def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None, 
     def shoot():
         small = screens.pop(0) if screens else bytes([0]) * 16
         # the model sees a 1280x720 image of a 2560x1440 screen
-        return Shot(b"jpeg", (1280, 720), lambda x, y: (x * 2, y * 2), small)
+        return Shot(jpeg, (1280, 720), lambda x, y: (x * 2, y * 2), small)
 
     desktop = DesktopSurface(
         apps={"paint": (["mspaint.exe"], "Paint")},
@@ -34,7 +35,7 @@ def make(foreground="Untitled - Paint", focus_ok=True, screens=None, home=None, 
         foreground=lambda: foreground, focus=lambda w: focus_ok, launch=lambda app: "Paint",
     )
     s = Session(surfaces={"paint": desktop}, events=lambda m, p: events.append((m, p)), sleep=lambda s: None,
-                **({"home": home} if home else {}), **({"approve": approve} if approve else {}))
+                **({"home": home} if home else {}), **({"approve": approve} if approve else {}), eyes=eyes)
     return s, done, events
 
 
@@ -207,3 +208,59 @@ def test_the_file_approver_waits_for_the_answer_file_and_treats_silence_as_no(tm
     now[0] = 0.0
     assert silent("deleting a file") is False
     assert file_approver(None, lambda m, p: None)("anything") is False  # no app to ask: no
+
+
+def real_jpeg(size=(1280, 720)):
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", size, (30, 30, 30)).save(out, "JPEG")
+    return out.getvalue()
+
+
+def test_locate_returns_the_point_and_a_zoom_and_a_click_there_is_the_eyes_channel():
+    asked = []
+
+    def eyes(jpeg, what):
+        asked.append((jpeg, what))
+        return (412, 88), 4.2
+
+    shot = real_jpeg()
+    s, done, events = make(screens=changed_screens(4), eyes=eyes, jpeg=shot)
+    s.open("paint")
+    s.observe()
+    reply, zoom = s.locate("the Brush tool")
+    assert asked == [(shot, "the Brush tool")]  # the eyes look at the very screenshot the model saw
+    assert "x=412, y=88" in reply and zoom[:2] == bytes.fromhex("ffd8")  # a JPEG for the model to confirm with
+    loc = [p for m, p in events if m == "locate"][-1]
+    assert (loc["x"], loc["y"]) == (412 / 1280, 88 / 720) and loc["what"] == "the Brush tool"
+    s.act("click", x=412, y=88)
+    assert done[-1].coordinate == (824, 176)
+    assert [p for m, p in events if m == "step"][-1]["channel"] == "eyes"
+
+
+def test_coordinates_the_eyes_did_not_give_stay_vision_and_a_new_look_forgets_old_points():
+    s, _, events = make(screens=changed_screens(8), eyes=lambda j, w: ((412, 88), 1.0), jpeg=real_jpeg())
+    s.open("paint")
+    s.observe()
+    s.locate("the Brush tool")
+    s.act("click", x=500, y=300)  # the model chose its own point
+    s.observe()  # a new screenshot: the old point may be stale
+    s.act("click", x=412, y=88)
+    assert [p["channel"] for m, p in events if m == "step"] == ["vision", "vision"]
+
+
+def test_locate_without_eyes_or_before_looking_says_what_to_do_instead():
+    s, _, _ = make()
+    s.open("paint")
+    assert "not running" in s.locate("Brush")[0]
+    s, _, _ = make(eyes=lambda j, w: ((1, 1), 0.1))
+    s.open("paint")
+    assert "Observe first" in s.locate("Brush")[0]
+    s, _, _ = make(eyes=lambda j, w: (None, 3.0), jpeg=real_jpeg())
+    s.open("paint")
+    s.observe()
+    reply, zoom = s.locate("Brush")
+    assert "found nothing" in reply and zoom == b""

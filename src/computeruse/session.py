@@ -11,8 +11,8 @@ How a target is found -- the research result, enforced by the surfaces, not left
 
     keys / typing into the focused field       channel "api"     no pixels, no guessing
     an element from the tree, BY NAME          channel "tree"    exact, cheap
+    x, y our grounder found: locate()          channel "eyes"    for what the tree does not name
     x, y read off the screenshot               channel "vision"  the model's own eyes
-    (locate(), our trained grounder, joins as channel "eyes" in a later piece)
 
 Acting on a tree element that has no name is refused: "tree first" with nameless elements is the
 naive hybrid that lost to vision alone in Tests A and B. A plan step is ticked only by `check`, and
@@ -91,6 +91,8 @@ class Session:
     home: Path = field(default_factory=Path.home)
     # asks the person about an irreversible action; True = go ahead. Default: no one to ask, so no.
     approve: Callable[[str], bool] = lambda reason: False
+    # the grounder: (screenshot jpeg, description) -> (point in its pixels or None, seconds). None: no eyes.
+    eyes: Optional[Callable[[bytes, str], tuple[Optional[tuple[int, int]], float]]] = None
 
     target: Optional[str] = None
     surface: Any = None
@@ -98,6 +100,8 @@ class Session:
     done: set[int] = field(default_factory=set)
     baseline: Any = None  # the surface's state when the current plan step started
     steps: int = 0
+    shot: Optional[Shot] = None  # the latest screenshot the model saw
+    located: dict = field(default_factory=dict)  # (x, y) the eyes returned since that screenshot -> description
 
     # --- tools ---------------------------------------------------------------
 
@@ -130,8 +134,31 @@ class Session:
         if problem:
             return problem, b""
         text, shot = self.surface.observe()
+        self.shot, self.located = shot, {}
         self.events("screen", {"src": "data:image/jpeg;base64," + base64.b64encode(shot.jpeg).decode()})
         return text, shot.jpeg
+
+    def locate(self, description: str) -> tuple[str, bytes]:
+        """Our grounder finds `description` in the latest screenshot. Returns the point and a zoomed
+        crop with a ring on it, so the model can confirm the eyes before it clicks: on apps they never
+        trained on they are right about half the time (the paper's held-out number)."""
+        problem = self._problem()
+        if problem:
+            return problem, b""
+        if self.eyes is None:
+            return "The eyes are not running here: read x, y off the screenshot yourself.", b""
+        if self.shot is None or not self.surface.observed:
+            return "Observe first: the eyes look at the latest screenshot.", b""
+        point, seconds = self.eyes(self.shot.jpeg, description)
+        if point is None:
+            return f"The eyes found nothing readable for {description!r} ({seconds:.1f}s). Use the screenshot.", b""
+        x, y = point
+        self.located[(x, y)] = description
+        w, h = self.shot.size
+        self.events("locate", {"what": description, "x": x / w, "y": y / h, "seconds": round(seconds, 1)})
+        return (f"The eyes put {description!r} at x={x}, y={y} ({seconds:.1f}s). The zoom shows a ring there: "
+                f"if it sits on the right thing, act with exactly these x, y; if not, use your own reading "
+                f"of the screenshot."), zoom(self.shot.jpeg, (x, y))
 
     def act(self, action: str, element: Optional[str] = None, x: Optional[int] = None, y: Optional[int] = None,
             to_x: Optional[int] = None, to_y: Optional[int] = None, text: Optional[str] = None,
@@ -150,6 +177,8 @@ class Session:
             move = self.surface.resolve(action, element, x, y, to_x, to_y, text, keys, direction, amount)
         except Refused as e:
             return str(e)
+        if move.step.channel == "vision" and (x, y) in self.located:
+            move.step.channel = "eyes"  # the coordinates came from our grounder, not the model's reading
         risk = getattr(self.surface, "risk", None)
         reason = risk(action, element, x, y, text, keys) if risk else None
         if reason and not self.approve(reason):
@@ -222,6 +251,25 @@ class Session:
                 if (root / p).is_file():
                     return root / p
         return None
+
+
+def zoom(jpeg: bytes, point: tuple[int, int], box: tuple[int, int] = (320, 200), scale: int = 2) -> bytes:
+    """A crop of the screenshot around `point`, enlarged, with a ring on the point."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    image = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    bw, bh = min(box[0], image.width), min(box[1], image.height)
+    left = max(0, min(point[0] - bw // 2, image.width - bw))
+    top = max(0, min(point[1] - bh // 2, image.height - bh))
+    crop = image.crop((left, top, left + bw, top + bh)).resize((bw * scale, bh * scale), Image.LANCZOS)
+    cx, cy, r = (point[0] - left) * scale, (point[1] - top) * scale, 14
+    draw = ImageDraw.Draw(crop)
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(251, 146, 60), width=3)
+    out = io.BytesIO()
+    crop.save(out, "JPEG", quality=85)
+    return out.getvalue()
 
 
 THUMB = (160, 90)  # grayscale thumbnail size used to compare screens

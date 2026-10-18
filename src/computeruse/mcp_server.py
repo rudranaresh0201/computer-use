@@ -25,7 +25,10 @@ Loop: open(target) -> plan(steps) -> observe() -> act(...) -> observe() ... -> c
 How to act, in this order of preference:
 1. Keys: shortcuts and typing into the focused app (act action="key"/"type"): exact, no pixels.
 2. Named elements from observe()'s list (act element="u12"): exact. Elements without a name are refused.
-3. Coordinates read off the screenshot (act x=, y=): for canvases and unnamed icons. Drawing is drag.
+3. For a button or icon the list does not name: locate("the Brush tool") asks our trained grounder. Look at
+   the zoom it returns; if the ring is on the right thing, act with exactly its x, y.
+4. Coordinates you read off the screenshot yourself (act x=, y=): canvases, drawing (drag), and whatever
+   locate gets wrong.
 
 Observe after every action or two; never act on a stale picture. A plan step counts as done only when
 check() verifies it with evidence (a saved file, text in the window, a changed screen). Say what you are
@@ -76,6 +79,14 @@ def build_server(session=None):
         return [text, Image(data=jpeg, format="jpeg")] if jpeg else [text]
 
     @server.tool(description=(
+        "Find something the element list does not name (an icon, a toolbar button) with our trained "
+        "grounder, in the latest screenshot. Describe it like 'the Brush tool' or 'Select button'. "
+        "Returns x, y and a zoom with a ring on that point: check the ring before acting on it."))
+    async def locate(description: str) -> list:
+        text, jpeg = await on_worker(lambda s: s.locate(description))
+        return [text, Image(data=jpeg, format="jpeg")] if jpeg else [text]
+
+    @server.tool(description=(
         "Do one thing. action: click | double_click | right_click | drag | type | key | scroll | wait.\n"
         "Target with element='u12' (a NAMED element from observe) or x, y (screenshot pixels).\n"
         "drag: x, y -> to_x, to_y. type: text (into element if given, else the focused field). "
@@ -108,7 +119,26 @@ def build_session(events, approve=lambda reason: False):
     chrome = AgentChrome()  # started or attached on the first web target, not before
     web = WebSurface(SITES, page=chrome.page, settle=lambda: time.sleep(0.5))
     surfaces = {name: desktop for name in desktop.apps} | {name: web for name in SITES}
-    return Session(surfaces=surfaces, events=events, approve=approve)
+    return Session(surfaces=surfaces, events=events, approve=approve, eyes=build_eyes())
+
+
+def build_eyes():
+    """Our grounder, when CU_EYES=1. It needs ~4.4 GB of RAM, so it is opt-in; it starts loading in
+    the background now, so the first locate() waits less."""
+    if os.environ.get("CU_EYES") != "1":
+        return None
+    import threading
+
+    from .eyes import Grounder
+
+    grounder = Grounder()
+    threading.Thread(target=grounder.load, daemon=True, name="eyes-load").start()
+
+    def eyes(jpeg: bytes, description: str):
+        found = grounder.locate(jpeg, description)
+        return found.point, found.seconds
+
+    return eyes
 
 
 def main() -> None:
