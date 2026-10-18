@@ -217,7 +217,7 @@ const submit = () => { const goal = $("prompt").value.trim(); if (!goal) return;
 $("go").onclick = submit;
 es.addEventListener("asked", e => { $("ask").classList.remove("on"); $("goal").textContent = JSON.parse(e.data).goal; });
 $("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } });
-es.addEventListener("run", e => { const p = JSON.parse(e.data); $("ask").classList.remove("on"); $("goal").textContent = p.goal; $("brain").textContent = p.brain + " · arm " + p.arm; });
+es.addEventListener("run", e => { const p = JSON.parse(e.data); $("ask").classList.remove("on"); $("goal").textContent = p.goal.split("\n")[0]; $("brain").textContent = p.brain + " · arm " + p.arm; });
 es.addEventListener("screen", e => { const src = JSON.parse(e.data).src;  // keep the ring visible a moment first
   const wait = holdUntil - Date.now(); if (wait > 0) { held = src; setTimeout(() => { if (held) { showScreen(held); held = null; } }, wait); } else showScreen(src); });
 es.addEventListener("thought", e => { card().innerHTML = `<div class="thought">${esc(JSON.parse(e.data).text)}</div>`; });

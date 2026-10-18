@@ -259,6 +259,14 @@ class Agent:
         intent = state["intent"]
         turn = self.episode.turns[-1]
         if intent.action == "plan":
+            if self.session.plan:  # a free model re-planned 5 turns in a row on Tinkercad: one plan per run
+                left = [i for i in range(1, len(self.session.plan) + 1) if i not in self.session.done] or [1]
+                note = (f"A plan is already recorded. Do not plan again: act on step {left[0]} now "
+                        f"({self.session.plan[left[0] - 1]}).")
+                turn.result, turn.ok = note, False
+                self.history.append(f"{turn.n}. tried to plan again -- refused")
+                failures = state.get("failures", 0) + 1
+                return {"note": note, "failures": failures, "status": "gave_up" if failures >= MAX_FAILURES else ""}
             if not self.session.surface:
                 note = "Nothing is open."
             else:

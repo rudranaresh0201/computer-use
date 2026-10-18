@@ -72,6 +72,16 @@ class Prepared:
     checker: Optional[Callable[[], tuple[bool, str]]] = None
     outro: Optional[Callable[[Any], None]] = None
     mode: str = ""
+    hint: str = ""  # how this app works, the way a person would be told before using it
+
+
+CIRCUIT_HINT = """How Tinkercad Circuits works: the white area is the board. To add a part, type its name into the
+Search box of the components panel on the right and press Enter, then DRAG the part's tile from the panel onto
+an empty spot of the board (drag with "target" = the tile and "to_target" = an empty spot of the board). To wire,
+drag from one terminal (the small end of a lead or pin) to the other terminal. "Start Simulation" is at the top
+right; a lit LED glows."""
+TINKERCAD_3D_HINT = """How Tinkercad 3D works: the blue grid is the workplane. To add a shape, DRAG its tile from the
+shapes panel on the right onto the workplane; dropping a shape onto another one puts it on top."""
 
 
 def prepare(target: str, goal: str, page: Optional[Callable[[], Any]], folder: Path, fresh: bool = True,
@@ -81,10 +91,10 @@ def prepare(target: str, goal: str, page: Optional[Callable[[], Any]], folder: P
         if CIRCUIT_WORDS.search(goal):
             if fresh:
                 circuit_fresh(page())
-            return Prepared(None, circuit_outro, "circuit")
+            return Prepared(None, circuit_outro, "circuit", CIRCUIT_HINT)
         if fresh:
             tinkercad_fresh(page())
-        return Prepared(tinkercad_checker(page, folder), None, "3d")
+        return Prepared(tinkercad_checker(page, folder), None, "3d", TINKERCAD_3D_HINT)
     if target == "excalidraw" and page:
         if fresh:
             excalidraw_fresh(page())
@@ -233,7 +243,8 @@ def _run_one(goal: str, target: Optional[str], events: Callable[[str, dict], Non
         arm = brain_arm(brain_kind, arm)
         brain = brain or make_brain(brain_kind, arm, model)
         router = Router(arm, (lambda d: session.ground_with_eyes(d)) if eyes else None)
-        agent = Agent(session, brain, router, goal, checker=prep.checker, should_stop=should_stop, max_turns=max_turns)
+        told = f"{goal}\n\n{prep.hint}" if prep.hint else goal
+        agent = Agent(session, brain, router, told, checker=prep.checker, should_stop=should_stop, max_turns=max_turns)
         ep = agent.run()
         ep.target = target
         folder.mkdir(parents=True, exist_ok=True)

@@ -86,6 +86,14 @@ def test_a_refused_route_goes_back_to_the_brain_with_the_reason():
     assert len(clicks) == 1 and ep.status == "done"
 
 
+def test_a_second_plan_is_refused_and_names_the_step_to_act_on():
+    s, clicks, _ = desktop()
+    plan = j(action="plan", steps=["Pick the rectangle", "Draw"])
+    ep = run(s, [plan, plan, j(action="click", element="u0"), j(action="done", claim="x")])
+    assert "Do not plan again: act on step 1 now (Pick the rectangle)" in ep.turns[1].result
+    assert not ep.turns[1].ok and len(clicks) == 1
+
+
 def test_unusable_replies_and_repeated_failures_stop_the_run():
     s, clicks, _ = desktop()
     ep = run(s, ["not json"] * 5)
