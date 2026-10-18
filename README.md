@@ -1,47 +1,76 @@
 # computer-use
 
-An autonomous desktop agent for Windows: give it a goal (optionally starting from a screenshot), and it loops on its own — perceive the screen → decide an action → execute it (mouse/keyboard) → perceive again — until the task is done. Modeled on Anthropic's computer-use architecture, scoped to full OS control rather than just a browser.
+A computer-use agent for Windows and the web where **the LLM only decides**. Perceiving the screen,
+choosing how to ground each click, the vision model that finds what the accessibility tree can't
+see, the hands, the approval gate and the verifier are all ours. They're built around one measured
+question: **when should an agent trust the accessibility tree, and when should it trust its eyes?**
 
-This is a long-running, seriously documented project, not a weekend build. See `docs/` for the reasoning behind every major decision.
+![Trusting the accessibility tree first makes an agent worse than vision alone](docs/paper/arxiv/figures/tweet_headline.png)
 
-## Status
+## What we found
 
-Phases 0–2 complete; Phase 3 (the research core) in progress. See
-`docs/roadmap.md` for the full phased plan — it is the authority, this is a summary.
+1. **A 2B grounder trained on free labels, on a free GPU.** Windows UI Automation already knows the
+   name and box of every named element, so it labels training data for nothing. 1,572 examples from
+   10 apps, LoRA on Qwen2-VL-2B, one Kaggle T4, ~8 h.
 
-- **Phase 0 — research & foundations** ✅ prior art, ADRs, hypotheses pre-registered
-- **Phase 1 — core harness ("hands and eyes")** ✅ UIA perception + input control
-- **Phase 2 — agent loop skeleton** ✅ perceive → decide → act, with `act` re-perceiving
-  and diffing before/after; the decision backend is still mocked
-- **Phase 3 — GUI grounding model** 🔬 in progress. Dataset collected and audited
-  (v3: 200 screenshots, 1,572 train / 555 dev), LoRA training pipeline built, and the
-  four-arm ablation harness (fine-tuned grounder / zero-shot VLM / UIA-only / hybrid)
-  complete and dry-run against the real dataset. The UIA baseline arm has its first
-  real export: 1,591 examples, 1,588 resolved, 99.8%. **The model arms have not been
-  scored yet, so there is no accuracy claim for the fine-tuned grounder** — per the
-  rigor bar below, an honest negative result is acceptable and an unverified one is not.
-- **Phase 4+ — brain integration, hardening, eval suite** ⏳ not started
+   | | zero-shot | fine-tuned | Δ [95% CI, screenshot-clustered] |
+   |---|---|---|---|
+   | same apps, new screenshots (n=246) | 14.2 | 64.6 | +50.4 [43.0, 57.8] |
+   | **4 apps never trained on** (n=790) | 1.5 | **46.5** | +44.9 [41.1, 48.7] |
+   | ScreenSpot-v2, 6-cell mean (n=1,272) | 19.2 | 62.8 | +46.1 [42.9, 49.1] |
 
-Training moved off free-tier notebooks to a rented pod after five runs died with
-their session holding a healthy loss curve and no weights; the pod also has bf16,
-which retires the fp16 gradient-underflow class outright rather than working around it.
+   It gains on every platform of ScreenSpot-v2, phones included (+57.5), though it trained only on Windows.
 
-The agent does not yet drive a real desktop end-to-end with a real model: the loop
-is real, the grounding model it will call is still being trained.
+2. **"Tree first, else vision" is worse than vision alone** once the tree is incomplete: −12.0 points
+   on generated apps and −9.5 on real Windows screens with the target missing from the tree. The tree
+   doesn't say "not here", it confidently returns the wrong element. Exactly:
+   `fallback − vision = P(tree answers) × (tree precision − vision accuracy on those items)`.
+   On generated apps that's 46.8% × (54.1 − 79.7) = −12.0.
 
-## Project structure
+3. **A gate that works.** An LLM reads the tree. Its pick counts only if that element **has a name**;
+   otherwise our grounder decides. 85.2% vs 66.4% for vision alone on the same 250 items, chosen on
+   dev and tested once, and never below vision on any of the five target conditions.
+
+The method, every pre-registration commit and every bug that would have invalidated a result are in
+[`docs/journal.md`](docs/journal.md). The paper draft is in [`docs/paper/`](docs/paper/).
+`scripts/paper_numbers.py` recomputes every number and figure from the raw per-example results.
+
+## The agent: our loop, Claude as the brain
 
 ```
-docs/
-  roadmap.md        — living roadmap, phases and status
-  research/          — notes on Anthropic's computer-use architecture and prior art
-  decisions/         — ADRs: the "why" behind architecture choices
-  journal.md         — running dev log, one entry per session
-  learning.md        — zero-background math/ML reading track, sequenced to the roadmap
-src/computeruse/     — the package
-scripts/              — standalone proof-of-concept / one-off scripts
-tests/                — unit tests
+perceive ──► decide ──► ground ──► act ──► verify
+ tree +       the LLM    the gate   approval   plan steps need evidence;
+ screenshot   (one JSON  above:     gate, did  the task's own checker
+              intent)    tree/eyes  it change  decides pass, never the LLM
 ```
+
+- **decide**: Claude (`claude -p`, all tools off) or any text model answers with one action, e.g.
+  `{"action": "click", "target": "the floppy-disk save icon"}`. It can't point by itself: bare
+  coordinates for a click are refused.
+- **ground**: a named tree element is clicked through the tree. A nameless one is refused ("describe
+  it"). A description goes to **our grounder**, served from a GPU (`computeruse eyes-serve`,
+  `notebooks/eyes_server_kaggle.ipynb`). Verified: the live eyes return the eval's answers
+  coordinate for coordinate.
+- **verify**: "done" is a claim. A page or app checker reads the real state, and a wrong claim counts
+  as a **false success**.
+
+```
+computeruse bench --brain groq --arm paper_blind --eyes remote --seeds 3    # A/B/C/D comparison, sandbox suite
+computeruse agent "Draw boxes Brain, Router, Eyes and connect them" --site excalidraw \
+    --check excalidraw --expect "Brain,Router,Eyes" --connect "Brain>Router,Router>Eyes"
+```
+
+`computeruse agent` opens a live panel. It shows every screenshot, a ring where each action landed,
+which channel placed it (TREE / EYES / VISION), the router's reasons and refusals, and finally the
+brain's claim beside the checker's verdict.
+
+## Status (2026-10-18)
+
+Done: the grounder, Tests A and B, the gates, the agent loop with router, remote eyes and checkers,
+the sandbox suite. 406 tests.
+Next: task-level A/B/C/D runs, the second training seed's eval, real UIA-blind targets (Test C), and
+the hero demo. Gaps and the experiment backlog: [`docs/where-we-are.md`](docs/where-we-are.md),
+[`docs/research/experiment-plan.md`](docs/research/experiment-plan.md).
 
 ## Setup
 
@@ -50,9 +79,5 @@ python -m venv .venv
 .venv/Scripts/pip install -e .
 ```
 
-## Design principles
-
-1. **Hybrid perception**: Windows UI Automation for structured, precise element targeting, vision/screenshots as fallback and ground truth. See `docs/decisions/0001-architecture.md`.
-2. **Pluggable brain**: the decision-making backend (local free model during development, Claude in production) sits behind one interface. See `docs/decisions/0002-brain-abstraction-and-cost-strategy.md`.
-3. **No paid API spend until the harness is proven.** Every dollar spent later is logged in `docs/journal.md`.
-4. **No architectural decision without an ADR, no research without a note, no session without a journal entry.**
+The LoRA adapter (step 1179, chosen on dev) will be released with the paper. The dataset is not
+released: its screenshots need a privacy audit first.
