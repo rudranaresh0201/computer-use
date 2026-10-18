@@ -75,10 +75,12 @@ class Prepared:
     hint: str = ""  # how this app works, the way a person would be told before using it
 
 
-CIRCUIT_HINT = """How Tinkercad Circuits works: the white area on the left is the board. To add a part, DRAG its tile
-from the components panel on the right onto the board: "target" = the tile (e.g. "the Coin Cell 3V Battery tile"),
-and give "to_x", "to_y" yourself for where it lands: a point on the white board, well below the toolbar. Empty
-places have nothing to find, so always give x, y for them. Put the two parts side by side with space between.
+CIRCUIT_HINT = """How Tinkercad Circuits works: the white area on the left is the board. To add a part, first type its
+name into the Search box of the components panel and press Enter (e.g. "coin" for the Coin Cell 3V Battery), so
+its tile is the only one shown: the 9V and coin cell battery tiles sit side by side and are easy to confuse. Then
+DRAG that tile onto the board: "target" = the tile, and give "to_x", "to_y" yourself for where it lands, a point
+on the white board well below the toolbar. Empty places have nothing to find, so always give x, y for them. Put
+the two parts side by side with space between; if a wrong part lands, select it and press Delete.
 Do not use Zoom To Fit until both parts are on the board (with one part it zooms that part to fill the view).
 To wire, drag from one terminal (the small metal end of a lead or pin) to the other: give x, y and to_x, to_y
 yourself from the screenshot. "Start Simulation" is at the top right; a lit LED glows."""
@@ -121,7 +123,30 @@ def make_session(events: Callable[[str, dict], None], approve: Callable[[str], b
     return Session(surfaces=surfaces, events=events, approve=approve, eyes=eyes), chrome
 
 
+def zoom_board(page, notches: int = 1) -> None:
+    """Zoom the empty Tinkercad Circuits board in before the brain starts: in the narrow recording window,
+    parts dropped at the default zoom came out too small to hit their legs when wiring (take 5)."""
+    w, h = page.evaluate("[innerWidth, innerHeight]")
+    page.mouse.move(w * 0.3, h * 0.55)  # the board, left of the components panel
+    for _ in range(notches):
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(250)
+
+
 LEFT_SHARE = 0.70  # CU_LAYOUT=split: the target on the left 70%, the app window (main.js) on the right
+
+
+def maximize_chrome(chrome) -> None:
+    """Full width before an app is set up: the agent's Chrome stays narrow from the last recorded run, and a
+    narrow Tinkercad dashboard hides its Create button in a menu."""
+    try:
+        page = chrome.page()
+        cdp = page.context.new_cdp_session(page)
+        wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "maximized"}})
+        page.wait_for_timeout(800)
+    except Exception:  # noqa: BLE001 -- a layout nicety must never stop a run
+        pass
 
 
 def place_target(target: str, web: bool, chrome) -> None:
@@ -241,6 +266,8 @@ def _run_one(goal: str, target: Optional[str], events: Callable[[str, dict], Non
         folder = OUT / time.strftime("%Y%m%d-%H%M%S")
         web = getattr(session.surface, "kind", "") == "web"
         # set the app up at full width, then move it: a narrow Tinkercad dashboard hides "Create" in a menu
+        if web and fresh:
+            maximize_chrome(chrome)
         prep = prepare(target, goal, chrome.page if web else None, folder, fresh, expect, connect)
         place_target(target, web, chrome)
         if target == "tinkercad" and web:
@@ -248,6 +275,8 @@ def _run_one(goal: str, target: Optional[str], events: Callable[[str, dict], Non
 
             chrome.page().wait_for_timeout(1500)
             dismiss_tips(chrome.page())
+            if prep.mode == "circuit":
+                zoom_board(chrome.page())
         arm = brain_arm(brain_kind, arm)
         brain = brain or make_brain(brain_kind, arm, model)
         router = Router(arm, (lambda d: session.ground_with_eyes(d)) if eyes else None)

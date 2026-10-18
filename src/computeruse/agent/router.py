@@ -116,8 +116,10 @@ class Router:
         if a == "drag":
             return self._drag(intent, boxes, width)
         if a in POINTED or a in ("type", "scroll"):
+            # scrolling at a point picks no element (it zooms or pans what is under it), so the brain's own x, y
+            # are fine there; take 5 deadlocked on Tinkercad when both the x, y and the description were refused
             element, point, channel, why, secs = self._place(intent.element, intent.target, intent.x, intent.y,
-                                                              boxes, width, free_xy=False)
+                                                              boxes, width, free_xy=(a == "scroll"))
             if element:
                 return Grounded(a, channel, element=element, why=why)
             return Grounded(a, channel, x=point[0], y=point[1], why=why, eyes_seconds=secs)
