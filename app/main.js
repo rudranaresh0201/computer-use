@@ -68,7 +68,7 @@ function startSidecar() {
     } else if (msg.method) {
       toPage(msg); // a notification: step, started, finished
       if (msg.method === 'started' && msg.params?.app) dockRight();
-      if (msg.method !== 'screen') console.log(`[agent] ${msg.method} ${JSON.stringify(msg.params).slice(0, 300)}`);
+      if (msg.method !== 'screen') console.log(`[agent] ${msg.method} ${JSON.stringify({ t: Date.now() / 1000, ...msg.params }).slice(0, 300)}`);
     }
   });
   sidecar.stderr.on('data', (d) => process.stderr.write(`[sidecar] ${d}`));

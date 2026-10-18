@@ -48,6 +48,7 @@ def main() -> None:
     out = ROOT / "runs" / "agent" / "live" / f"demo-{time.strftime('%Y%m%d-%H%M%S')}.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
     recorder = start_recording(out)
+    out.with_suffix(".start").write_text(str(time.time()))  # video time 0, for cutting by event times
     env = os.environ | {"CU_LAYOUT": "split", "CU_BRAIN": "loop", "CU_LOOP_BRAIN": args.brain,
                         "CU_MAX_TURNS": os.environ.get("CU_MAX_TURNS", "60")}
     if args.goal:
