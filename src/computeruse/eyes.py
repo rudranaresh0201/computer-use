@@ -108,6 +108,9 @@ class Grounder:
         start = time.perf_counter()
         if self.threads:
             torch.set_num_threads(self.threads)
+        # the adapter first: a missing token or a private repo must fail before anything is on the GPU,
+        # or each retry leaves a full copy of the base model behind (seen on Kaggle: 13.5 GB, then OOM)
+        adapter = str(adapter_dir())
         dtype = torch.bfloat16
         if self.device != "cpu":
             from .training.train_lora import resolve_precision, torch_dtype_for
@@ -117,7 +120,7 @@ class Grounder:
         if self.device != "cpu":
             base = base.to(self.device)
         # merged: one set of weights, no adapter detour on every layer at inference
-        self.model = PeftModel.from_pretrained(base, str(adapter_dir())).merge_and_unload().eval()
+        self.model = PeftModel.from_pretrained(base, adapter).merge_and_unload().eval()
         if self.int8:
             self.model = quantize_int8(self.model)
         self.processor = AutoProcessor.from_pretrained(MODEL_ID)
