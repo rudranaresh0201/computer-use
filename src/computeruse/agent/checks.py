@@ -9,12 +9,21 @@ Checkers for real apps: each reads the app's own saved state and gives (passed, 
 
     computeruse agent "Draw ..." --site excalidraw --check excalidraw \\
         --expect "Brain,Router,Eyes" --connect "Brain>Router,Router>Eyes"
+
+    tinkercad    the design's real geometry: the checker exports everything in the design as STL
+                 (Tinkercad's own Export dialog), splits the mesh into separate solids, and checks
+                 that a round solid stands on top of a box: its bottom within 1 mm of the box's top
+                 and its centre over the box's footprint. Shape kind comes from the mesh (a box is
+                 12 triangles), never from the agent.
 """
 
 from __future__ import annotations
 
+import re
+import struct
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 EXCALIDRAW_SCENE = "JSON.parse(localStorage.getItem('excalidraw') || '[]')"
@@ -69,6 +78,99 @@ def excalidraw_fresh(page) -> None:
     page.evaluate("localStorage.removeItem('excalidraw')")
     page.reload(wait_until="domcontentloaded")
     page.wait_for_timeout(1500)
+
+
+def read_stl(data: bytes) -> list[tuple[tuple[float, float, float], ...]]:
+    """Triangles of a binary or ASCII STL, each three (x, y, z) vertices."""
+    if data[:5].lower() == b"solid" and b"facet" in data[:400]:
+        nums = [tuple(map(float, m)) for m in re.findall(rb"vertex\s+(\S+)\s+(\S+)\s+(\S+)", data)]
+        return [tuple(nums[i:i + 3]) for i in range(0, len(nums) - 2, 3)]
+    (n,) = struct.unpack_from("<I", data, 80)
+    tris = []
+    for i in range(n):
+        v = struct.unpack_from("<12f", data, 84 + 50 * i)
+        tris.append(((v[3], v[4], v[5]), (v[6], v[7], v[8]), (v[9], v[10], v[11])))
+    return tris
+
+
+def solids(tris) -> list[dict[str, Any]]:
+    """Split a mesh into connected solids (triangles sharing a vertex); each with its triangle count
+    and bounding box. Shapes that merely touch stay separate: they share no vertices."""
+    parent = list(range(len(tris)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    seen: dict[tuple, int] = {}
+    for t, tri in enumerate(tris):
+        for v in tri:
+            key = tuple(round(c, 3) for c in v)
+            if key in seen:
+                a, b = find(seen[key]), find(t)
+                if a != b:
+                    parent[a] = b
+            else:
+                seen[key] = t
+    groups: dict[int, list] = {}
+    for t, tri in enumerate(tris):
+        groups.setdefault(find(t), []).append(tri)
+    out = []
+    for g in groups.values():
+        xs, ys, zs = zip(*(v for tri in g for v in tri))
+        out.append({"triangles": len(g), "min": (min(xs), min(ys), min(zs)), "max": (max(xs), max(ys), max(zs))})
+    return sorted(out, key=lambda s: s["min"][2])
+
+
+def stacked_verdict(parts: list[dict[str, Any]], tol: float = 1.0) -> tuple[bool, str]:
+    """A round solid (more than a box's 12 triangles) standing on a box that stands on the workplane."""
+    boxes = [p for p in parts if p["triangles"] == 12 and abs(p["min"][2]) <= tol]
+    rounds = [p for p in parts if p["triangles"] > 12]
+    desc = "; ".join(f"{p['triangles']} tris, z {p['min'][2]:.1f} to {p['max'][2]:.1f}" for p in parts)
+    for b in boxes:
+        for r in rounds:
+            cx, cy = (r["min"][0] + r["max"][0]) / 2, (r["min"][1] + r["max"][1]) / 2
+            if (abs(r["min"][2] - b["max"][2]) <= tol and b["min"][0] <= cx <= b["max"][0]
+                    and b["min"][1] <= cy <= b["max"][1]):
+                return True, f"{len(parts)} solids, a round one sits on the box: {desc}"
+    return False, f"{len(parts)} solids, nothing round stands on a box: {desc or 'empty design'}"
+
+
+def tinkercad_export_stl(page, folder: Path) -> bytes:
+    """Everything in the design, through Tinkercad's own Export dialog."""
+    page.keyboard.press("Escape")
+    page.get_by_text("Export", exact=True).first.click()
+    page.wait_for_timeout(1500)
+    everything = page.get_by_text(re.compile(r"Everything in the design", re.I))
+    if everything.count():
+        everything.first.click()
+    with page.expect_download(timeout=60000) as dl:
+        page.get_by_text(".STL", exact=True).first.click()
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "design.stl"
+    dl.value.save_as(str(path))
+    page.keyboard.press("Escape")
+    return path.read_bytes()
+
+
+def tinkercad_checker(page: Callable[[], Any], folder: Path = Path("runs/agent/live")):
+    def check() -> tuple[bool, str]:
+        time.sleep(1.0)
+        return stacked_verdict(solids(read_stl(tinkercad_export_stl(page(), folder))))
+    return check
+
+
+def tinkercad_fresh(page) -> None:
+    """A new, empty 3D design (it appears in the signed-in account's Designs)."""
+    page.goto("https://www.tinkercad.com/dashboard", wait_until="domcontentloaded")
+    page.wait_for_timeout(5000)
+    page.get_by_role("button", name="Create").first.click()
+    page.wait_for_timeout(1500)
+    page.get_by_role("menuitem", name=re.compile("3D Design", re.I)).first.click()
+    page.wait_for_url(re.compile(r"/things/.+/edit"), timeout=60000)
+    page.wait_for_timeout(12000)  # the WebGL editor loads well after the URL changes
 
 
 def parse_connect(spec: str) -> list[tuple[str, str]]:
