@@ -30,6 +30,25 @@ function toPage(msg) {
   if (win && !win.isDestroyed()) win.webContents.send('agent:event', msg);
 }
 
+let docked = false;
+function dockRight() {
+  // CU_LAYOUT=split: slide from full screen to the right 36%, once, as the first app opens
+  if (docked || process.env.CU_LAYOUT !== 'split' || !win || win.isDestroyed()) return;
+  docked = true;
+  const area = screen.getPrimaryDisplay().workArea;
+  const from = win.getBounds();
+  const to = { x: area.x + Math.round(area.width * 0.64), y: area.y, width: area.width - Math.round(area.width * 0.64), height: area.height };
+  const frames = 18;
+  for (let i = 1; i <= frames; i++) {
+    setTimeout(() => {
+      if (win.isDestroyed()) return;
+      const t = 1 - (1 - i / frames) ** 3; // ease out
+      win.setBounds({ x: Math.round(from.x + (to.x - from.x) * t), y: to.y, height: to.height,
+                      width: Math.round(from.width + (to.width - from.width) * t) });
+    }, i * 28);
+  }
+}
+
 function startSidecar() {
   // loop: our agent loop, router and grounder, with Claude (or CU_LOOP_BRAIN=groq) only deciding;
   // claude: Claude Code drives the MCP server; groq: the earlier desktop loop
@@ -48,6 +67,7 @@ function startSidecar() {
       pending.delete(msg.id);
     } else if (msg.method) {
       toPage(msg); // a notification: step, started, finished
+      if (msg.method === 'started' && msg.params?.app) dockRight();
       if (msg.method !== 'screen') console.log(`[agent] ${msg.method} ${JSON.stringify(msg.params).slice(0, 300)}`);
     }
   });
@@ -75,14 +95,13 @@ function request(method, params = {}) {
 ipcMain.handle('agent:request', (_event, method, params) => request(method, params));
 
 function createWindow() {
-  // CU_LAYOUT=split (for recording): this window on the right 36% of the screen; the sidecar puts the
-  // app or the agent's Chrome on the left 64% (agent/runner.py place_target), so both are in frame.
+  // CU_LAYOUT=split (for recording): the window opens full screen for the prompt, then slides to the
+  // right 36% when the agent starts opening an app (dockRight below); the sidecar puts that app or the
+  // agent's Chrome on the left 64% (agent/runner.py place_target), so both are in frame.
   const split = process.env.CU_LAYOUT === 'split';
   const area = screen.getPrimaryDisplay().workArea;
-  const right = Math.round(area.width * 0.64);
   win = new BrowserWindow({
-    ...(split ? { x: area.x + right, y: area.y, width: area.width - right, height: area.height }
-              : { width: 1280, height: 800 }),
+    ...(split ? { x: area.x, y: area.y, width: area.width, height: area.height } : { width: 1280, height: 800 }),
     minWidth: split ? 480 : 900,
     minHeight: 600,
     backgroundColor: '#0b0d10',
