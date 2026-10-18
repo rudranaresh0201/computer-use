@@ -329,7 +329,8 @@ def loop_runner(goal: str, app: "str | None", notify: Callable[[str, dict], None
 
     approve_fn = file_approver(str(run_dir["path"] / "events.jsonl"), notify)
     _, summary = run_goal(goal, app, emit, brain_kind=os.environ.get("CU_LOOP_BRAIN", "claude"),
-                          model=os.environ.get("CU_CLAUDE_MODEL") or None, approve=approve_fn, should_stop=should_stop)
+                          model=os.environ.get("CU_CLAUDE_MODEL") or None, approve=approve_fn, should_stop=should_stop,
+                          max_turns=int(os.environ.get("CU_MAX_TURNS", "40")))
     return summary
 
 

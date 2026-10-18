@@ -42,7 +42,8 @@ def main() -> None:
     out = ROOT / "runs" / "agent" / "live" / f"demo-{time.strftime('%Y%m%d-%H%M%S')}.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
     recorder = start_recording(out)
-    env = os.environ | {"CU_LAYOUT": "split", "CU_BRAIN": "loop", "CU_LOOP_BRAIN": args.brain}
+    env = os.environ | {"CU_LAYOUT": "split", "CU_BRAIN": "loop", "CU_LOOP_BRAIN": args.brain,
+                        "CU_MAX_TURNS": os.environ.get("CU_MAX_TURNS", "60")}
     if args.goal:
         env["CU_AUTORUN"] = args.goal
     electron = ROOT / "app" / "node_modules" / ".bin" / "electron.cmd"

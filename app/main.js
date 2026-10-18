@@ -32,12 +32,12 @@ function toPage(msg) {
 
 let docked = false;
 function dockRight() {
-  // CU_LAYOUT=split: slide from full screen to the right 36%, once, as the first app opens
+  // CU_LAYOUT=split: slide from full screen to the right 30%, once, as the first app opens
   if (docked || process.env.CU_LAYOUT !== 'split' || !win || win.isDestroyed()) return;
   docked = true;
   const area = screen.getPrimaryDisplay().workArea;
   const from = win.getBounds();
-  const to = { x: area.x + Math.round(area.width * 0.64), y: area.y, width: area.width - Math.round(area.width * 0.64), height: area.height };
+  const to = { x: area.x + Math.round(area.width * 0.70), y: area.y, width: area.width - Math.round(area.width * 0.70), height: area.height };
   const frames = 18;
   for (let i = 1; i <= frames; i++) {
     setTimeout(() => {
@@ -96,8 +96,8 @@ ipcMain.handle('agent:request', (_event, method, params) => request(method, para
 
 function createWindow() {
   // CU_LAYOUT=split (for recording): the window opens full screen for the prompt, then slides to the
-  // right 36% when the agent starts opening an app (dockRight below); the sidecar puts that app or the
-  // agent's Chrome on the left 64% (agent/runner.py place_target), so both are in frame.
+  // right 30% when the agent starts opening an app (dockRight below); the sidecar puts that app or the
+  // agent's Chrome on the left 70% (agent/runner.py place_target), so both are in frame.
   const split = process.env.CU_LAYOUT === 'split';
   const area = screen.getPrimaryDisplay().workArea;
   win = new BrowserWindow({

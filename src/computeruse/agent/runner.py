@@ -75,11 +75,13 @@ class Prepared:
     hint: str = ""  # how this app works, the way a person would be told before using it
 
 
-CIRCUIT_HINT = """How Tinkercad Circuits works: the white area is the board. To add a part, type its name into the
-Search box of the components panel on the right and press Enter, then DRAG the part's tile from the panel onto
-an empty spot of the board (drag with "target" = the tile and "to_target" = an empty spot of the board). To wire,
-drag from one terminal (the small end of a lead or pin) to the other terminal. "Start Simulation" is at the top
-right; a lit LED glows."""
+CIRCUIT_HINT = """How Tinkercad Circuits works: the white area on the left is the board. To add a part, DRAG its tile
+from the components panel on the right onto the board: "target" = the tile (e.g. "the Coin Cell 3V Battery tile"),
+and give "to_x", "to_y" yourself for where it lands: a point on the white board, well below the toolbar. Empty
+places have nothing to find, so always give x, y for them. Put the two parts side by side with space between.
+Do not use Zoom To Fit until both parts are on the board (with one part it zooms that part to fill the view).
+To wire, drag from one terminal (the small metal end of a lead or pin) to the other: give x, y and to_x, to_y
+yourself from the screenshot. "Start Simulation" is at the top right; a lit LED glows."""
 TINKERCAD_3D_HINT = """How Tinkercad 3D works: the blue grid is the workplane. To add a shape, DRAG its tile from the
 shapes panel on the right onto the workplane; dropping a shape onto another one puts it on top."""
 
@@ -119,7 +121,7 @@ def make_session(events: Callable[[str, dict], None], approve: Callable[[str], b
     return Session(surfaces=surfaces, events=events, approve=approve, eyes=eyes), chrome
 
 
-LEFT_SHARE = 0.64  # CU_LAYOUT=split: the target on the left 64%, the app window (main.js) on the right
+LEFT_SHARE = 0.70  # CU_LAYOUT=split: the target on the left 70%, the app window (main.js) on the right
 
 
 def place_target(target: str, web: bool, chrome) -> None:

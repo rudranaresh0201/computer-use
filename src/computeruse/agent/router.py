@@ -33,6 +33,9 @@ Boxes = dict[str, tuple[str, str, Box]]  # ref -> (name, role, box)
 Eyes = Callable[[str], tuple[Optional[tuple[int, int]], float]]  # description -> (point, seconds)
 
 ARMS = ("paper", "paper_blind", "vision", "tree", "both")
+# a description of empty space ("an empty spot in the middle of the board"): nothing for the grounder to find
+EMPTY_PLACE = re.compile(r"\b(empty|blank|free|clear)\b[^.]*\b(spot|space|area|place|region|part|point|board|canvas)\b",
+                         re.IGNORECASE)
 SNAP_FRACTION = 0.02  # snap radius as a share of the screenshot width (compare.SNAP_RADIUS = 20/1000)
 
 
@@ -161,6 +164,13 @@ class Router:
                 return None, (x, y), "vision", "the brain's own x, y (drawing)", 0.0
             raise Unroutable("say WHAT to act on: a named element, or a target description; "
                              "the router decides where")
+        if arm == "paper" and EMPTY_PLACE.search(description):
+            # nothing there for the grounder to find: it learned things ("click Save"), not empty space, and on
+            # Tinkercad it put every "empty spot on the board" on the toolbar. The seeing brain picks the place.
+            if has_xy:
+                return None, (x, y), "vision", "an empty place: the brain's own x, y", 0.0
+            raise Unroutable("an empty place has nothing for the grounder to find: give x, y yourself "
+                             "(to_x, to_y for where a drag ends), in screenshot pixels")
         point, seconds = self.eyes(description) if self.eyes else (None, 0.0)
         if point is not None:
             if self.use_snap:

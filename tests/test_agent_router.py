@@ -127,3 +127,17 @@ def test_helpers_match_the_eval_rules():
     assert tree_exact("press the Save button", BOXES) == "e1"
     assert tree_exact("Archive", BOXES) is None
     assert snap((1000, 1000), BOXES, 1280) == (1000, 1000)  # nothing near: left alone
+
+
+def test_an_empty_place_is_the_seeing_brains_job_not_the_grounders():
+    """Take 4 on Tinkercad: asked for "an empty spot on the board", the grounder pointed at the toolbar
+    every time; it learned things, not empty space. The seeing brain gives the place itself."""
+    eyes = eyes_at((300, 40))
+    r = Router("paper", eyes)
+    g = r.route(Intent("drag", target="the LED tile", to_target="an empty spot in the middle of the board",
+                       to_x=250, to_y=300), BOXES, 1280)
+    assert (g.to_x, g.to_y) == (250, 300) and eyes.asked == ["the LED tile"]
+    with pytest.raises(Unroutable, match="give x, y yourself"):
+        r.route(Intent("drag", target="the LED tile", to_target="a free area of the white board"), BOXES, 1280)
+    blind = Router("paper_blind", eyes_at((10, 10)))  # it cannot see: it still asks the grounder
+    assert blind.route(Intent("click", target="an empty spot of the board"), BOXES, 1280).channel == "eyes"
