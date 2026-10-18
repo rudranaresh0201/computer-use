@@ -173,6 +173,25 @@ def tinkercad_fresh(page) -> None:
     page.wait_for_timeout(12000)  # the WebGL editor loads well after the URL changes
 
 
+def circuit_fresh(page) -> None:
+    """A new, empty Tinkercad Circuit (it appears in the signed-in account's Designs)."""
+    page.goto("https://www.tinkercad.com/dashboard", wait_until="domcontentloaded")
+    page.wait_for_timeout(5000)
+    page.get_by_role("button", name="Create").first.click()
+    page.wait_for_timeout(1500)
+    page.get_by_role("menuitem", name=re.compile("Circuit", re.I)).first.click()
+    page.wait_for_url(re.compile(r"/things/.+/editel"), timeout=60000)
+    page.wait_for_timeout(10000)
+    page.keyboard.press("Escape")  # the "new component" tip
+
+
+def circuit_outro(page) -> None:
+    """After the verdict, for the video: the schematic, then the parts list, then back to the board."""
+    for view in ("Schematic", "Components", "Circuits"):
+        page.get_by_role("button", name=view).first.click()
+        page.wait_for_timeout(4000)
+
+
 def parse_connect(spec: str) -> list[tuple[str, str]]:
     pairs = []
     for part in filter(None, (p.strip() for p in spec.split(","))):

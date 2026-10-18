@@ -53,6 +53,35 @@ def test_parse_connect():
         parse_connect("Brain-Router")
 
 
+def test_the_goal_typed_into_the_panel_reaches_the_agent_once():
+    import threading
+    import urllib.error
+    import urllib.request
+
+    panel = Panel(port=0).start()
+    got = {}
+    t = threading.Thread(target=lambda: got.setdefault("goal", panel.ask("e.g. light an LED", timeout=10)))
+    t.start()
+
+    def post(goal):
+        req = urllib.request.Request(panel.url + "/run", data=json.dumps({"goal": goal}).encode(), method="POST",
+                                     headers={"Content-Type": "application/json"})
+        return urllib.request.urlopen(req, timeout=5).status
+
+    try:
+        with pytest.raises(urllib.error.HTTPError):
+            post("   ")  # an empty goal is refused and the box stays up
+        assert post("Light a red LED from a coin cell") == 204
+        t.join(5)
+        assert got["goal"] == "Light a red LED from a coin cell"
+        with pytest.raises(urllib.error.HTTPError) as second:
+            post("another goal")
+        assert second.value.code == 409  # one run per panel
+        assert [n for n, _ in panel.history] == ["ask", "asked"]
+    finally:
+        panel.stop()
+
+
 def test_the_panel_serves_its_page_and_replays_events_to_a_late_viewer():
     panel = Panel(port=0).start()
     try:

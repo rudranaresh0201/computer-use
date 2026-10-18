@@ -20,7 +20,8 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
-from .checks import excalidraw_checker, excalidraw_fresh
+from .checks import (circuit_fresh, circuit_outro, excalidraw_checker, excalidraw_fresh, tinkercad_checker,
+                     tinkercad_fresh)
 from .loop import Agent
 from .router import Router
 
@@ -77,13 +78,28 @@ def run_live(goal: str, site: Optional[str] = None, url: Optional[str] = None, b
     surface = WebSurface(sites, page=chrome.page, settle=lambda: time.sleep(0.5))
     session = Session(surfaces={name: surface}, events=events, approve=console_approve, eyes=eyes)
     session.open(name)
-    checker = None
+    checker, outro = None, None
     if check == "excalidraw":
         if fresh:
             excalidraw_fresh(chrome.page())
         checker = excalidraw_checker(chrome.page, list(expect), list(connect))
+    elif check == "tinkercad":
+        if fresh:
+            tinkercad_fresh(chrome.page())
+        checker = tinkercad_checker(chrome.page, OUT / stamp)
+    elif check == "circuit":
+        if fresh:
+            circuit_fresh(chrome.page())
+        outro = circuit_outro  # after the verdict: the schematic and the parts list, for the video
     elif check:
-        raise SystemExit(f"unknown --check {check!r} (excalidraw)")
+        raise SystemExit(f"unknown --check {check!r} (excalidraw, tinkercad, circuit)")
+    session.shot = None  # the fresh page replaced what open() saw
+
+    if not goal:
+        if not view:
+            raise SystemExit("give a goal, or keep the panel on to type one there")
+        print("type the goal into the panel ...")
+        goal = view.ask("Build a circuit where a coin-cell battery lights a red LED, then run the simulation.")
 
     brain = make_brain(brain_kind, arm, model)
     router = Router(arm, (lambda d: session.ground_with_eyes(d)) if eyes else None)
@@ -93,6 +109,11 @@ def run_live(goal: str, site: Optional[str] = None, url: Optional[str] = None, b
     path = OUT / f"{stamp}.json"
     path.write_text(json.dumps(ep.to_json(), indent=2), encoding="utf-8")
     log.close()
+    if outro:
+        try:
+            outro(chrome.page())
+        except Exception as e:  # noqa: BLE001 -- the outro is for the video; the result is already saved
+            print(f"outro skipped: {e.__class__.__name__}: {str(e)[:120]}")
 
     print(f"\n{'PASSED' if ep.passed else 'NOT PASSED'}  status={ep.status}  actions={sum(1 for t in ep.turns if t.channel)}"
           f"  channels={ep.channels()}  {ep.seconds:.0f}s")

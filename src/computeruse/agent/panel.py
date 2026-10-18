@@ -32,6 +32,15 @@ class Panel:
         self.server = ThreadingHTTPServer((host, port), self._handler())
         self.server.daemon_threads = True
         self.url = f"http://{host}:{self.server.server_address[1]}"
+        self.asked = threading.Event()  # the person typed a goal into the panel (POST /run)
+        self.goal = ""
+
+    def ask(self, placeholder: str = "", timeout: Optional[float] = None) -> str:
+        """Show the prompt box and wait for the person's goal."""
+        self("ask", {"placeholder": placeholder})
+        if not self.asked.wait(timeout):
+            raise TimeoutError("no goal was typed into the panel")
+        return self.goal
 
     def start(self) -> "Panel":
         threading.Thread(target=self.server.serve_forever, daemon=True, name="panel").start()
@@ -80,6 +89,23 @@ class Panel:
                     return
                 self.send_error(404)
 
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/run" or panel.asked.is_set():
+                    self.send_error(409 if self.path == "/run" else 404)
+                    return
+                try:
+                    goal = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["goal"].strip()
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    goal = ""
+                if not goal:
+                    self.send_error(400, "empty goal")
+                    return
+                panel.goal = goal
+                panel.asked.set()
+                panel("asked", {"goal": goal})  # a panel opened or reloaded later shows the run, not the box
+                self.send_response(204)
+                self.end_headers()
+
             def _stream(self) -> None:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -121,6 +147,16 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
   font:14px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace; }
 header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap }
 #goal { font-size:16px; font-weight:600; flex:1; min-width:260px }
+#ask { display:none; position:fixed; inset:0; background:var(--bg); z-index:5; align-items:center; justify-content:center; padding:16px }
+#ask.on { display:flex }
+#ask .box { width:min(760px, 100%) }
+#ask h1 { font-size:22px; font-weight:600; margin:0 0 6px }
+#ask p { color:var(--dim); margin:0 0 18px }
+#ask textarea { width:100%; min-height:110px; background:var(--card); color:var(--text); border:1px solid var(--line);
+  border-radius:10px; padding:14px; font:inherit; font-size:17px; resize:vertical }
+#ask textarea:focus { outline:2px solid var(--brain); border-color:transparent }
+#ask button { margin-top:12px; background:var(--brain); color:#0d1016; border:0; border-radius:8px; padding:10px 22px;
+  font:inherit; font-weight:700; font-size:15px; cursor:pointer }
 .who { color:var(--dim); font-size:12px } .who b { color:var(--text); font-weight:500 }
 .count { padding:3px 9px; border-radius:99px; font-size:12px; border:1px solid var(--line) }
 main { display:grid; grid-template-columns: minmax(0,1.6fr) minmax(320px,1fr); gap:16px; padding:16px 20px }
@@ -144,6 +180,9 @@ main { display:grid; grid-template-columns: minmax(0,1.6fr) minmax(320px,1fr); g
 #verdict.pass { display:block; border-color:var(--tree) } #verdict.fail { display:block; border-color:var(--bad) }
 #verdict .big { font-size:22px; font-weight:700 }
 </style></head><body>
+<div id="ask"><div class="box"><h1>What should the agent do?</h1>
+ <p>One sentence. Claude decides each step; our loop, router and 2B grounder do the rest, and a checker reads the result from the app.</p>
+ <textarea id="prompt" spellcheck="false"></textarea><br><button id="go">Run</button></div></div>
 <header><div id="goal">waiting for the agent...</div>
  <div class="who"><b>brain</b> <span id="brain">-</span> (decides) · <b>loop, router, eyes, checker</b> ours</div>
  <span class="count" style="color:var(--tree)">TREE <b id="n-tree">0</b></span>
@@ -170,7 +209,15 @@ function ring(fx, fy, ch, label, look) {
 function showScreen(src) { shot.src = src; stage.querySelectorAll(".ring").forEach(r => r.remove()); }
 const es = new EventSource("/events");
 es.addEventListener("started", e => { const p = JSON.parse(e.data); if (p.goal) $("goal").textContent = p.goal; });
-es.addEventListener("run", e => { const p = JSON.parse(e.data); $("goal").textContent = p.goal; $("brain").textContent = p.brain + " · arm " + p.arm; });
+es.addEventListener("ask", e => { const p = JSON.parse(e.data); $("prompt").placeholder = p.placeholder || "";
+  $("ask").classList.add("on"); $("prompt").focus(); });
+const submit = () => { const goal = $("prompt").value.trim(); if (!goal) return;
+  fetch("/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({goal})})
+    .then(() => { $("ask").classList.remove("on"); $("goal").textContent = goal; }); };
+$("go").onclick = submit;
+es.addEventListener("asked", e => { $("ask").classList.remove("on"); $("goal").textContent = JSON.parse(e.data).goal; });
+$("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } });
+es.addEventListener("run", e => { const p = JSON.parse(e.data); $("ask").classList.remove("on"); $("goal").textContent = p.goal; $("brain").textContent = p.brain + " · arm " + p.arm; });
 es.addEventListener("screen", e => { const src = JSON.parse(e.data).src;  // keep the ring visible a moment first
   const wait = holdUntil - Date.now(); if (wait > 0) { held = src; setTimeout(() => { if (held) { showScreen(held); held = null; } }, wait); } else showScreen(src); });
 es.addEventListener("thought", e => { card().innerHTML = `<div class="thought">${esc(JSON.parse(e.data).text)}</div>`; });
