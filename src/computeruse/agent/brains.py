@@ -255,6 +255,35 @@ class ScriptedBrain:
         return _decide(reply(view) if callable(reply) else reply, {}, 0.0)
 
 
+def ask_text(kind: str, prompt: str, model: Optional[str] = None, timeout: float = 90.0) -> str:
+    """One plain question to the same model the brain uses (e.g. which app a goal needs); "" on failure."""
+    if kind == "claude":
+        from ..claude_brain import claude_exe
+
+        cmd = [claude_exe(), "-p", "--system-prompt", "Answer with exactly what is asked, nothing else.",
+               "--tools", "", "--strict-mcp-config", "--no-session-persistence"]
+        model = model or os.environ.get("CU_CLAUDE_MODEL")
+        if model:
+            cmd += ["--model", model]
+        try:
+            done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", cwd=tempfile.mkdtemp(prefix="cu-ask-"), timeout=timeout,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired:
+            return ""
+        return (done.stdout or "").strip()
+    if kind == "groq":
+        from ..brain.chat import GROQ_DEFAULT_MODEL, OpenAICompatibleChat
+
+        try:
+            reply, _ = OpenAICompatibleChat.groq(model or GROQ_DEFAULT_MODEL, timeout=timeout).complete(
+                [{"role": "user", "content": prompt}])
+        except Exception:  # noqa: BLE001 -- no answer means "ask the person to pick", not a crash
+            return ""
+        return reply.strip()
+    return ""
+
+
 def make_brain(kind: str, arm: str, model: Optional[str] = None) -> Brain:
     if kind == "claude":
         return ClaudeCodeBrain(arm=arm, model=model or os.environ.get("CU_CLAUDE_MODEL"))

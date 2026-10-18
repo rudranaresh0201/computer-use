@@ -229,7 +229,7 @@ es.addEventListener("refused", e => { const p = JSON.parse(e.data); bump("refuse
   `<div class="act"><span class="badge b-refused">REFUSED</span>${esc(p.intent)}</div><div class="why">${esc(p.reason)}</div>`); });
 es.addEventListener("locate", e => { const p = JSON.parse(e.data); ring(p.x, p.y, "eyes", "eyes: " + p.what + " (" + p.seconds + "s)", true); });
 es.addEventListener("step", e => { const p = JSON.parse(e.data); const ch = p.channel; if (ch in color) bump(ch);  // api (keys, typing) is not a grounding channel
-  if (p.x != null && shot.naturalWidth) ring(p.x / shot.naturalWidth, p.y / shot.naturalHeight, ch, p.label);
+  if (p.x != null) ring(p.x, p.y, ch, p.label);  // Step.point is already a fraction of the screenshot
   holdUntil = Date.now() + 1100; });
 es.addEventListener("receipt", e => { const p = JSON.parse(e.data); (current || card()).insertAdjacentHTML("beforeend",
   `<div class="act"><span class="badge b-check">CHECK ${p.step}</span>${esc(p.verdict)}: ${esc(p.summary)}</div>`); });

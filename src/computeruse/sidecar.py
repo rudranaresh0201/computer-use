@@ -308,6 +308,31 @@ def approve(run_dir: dict, params: dict) -> dict:
     return {"recorded": True, "ok": ok}
 
 
+def loop_runner(goal: str, app: "str | None", notify: Callable[[str, dict], None], should_stop: Callable[[], bool],
+                run_dir: dict, run_goal=None) -> dict:
+    """Our loop (agent/runner.py) behind the window: the brain only decides; the router, our grounder,
+    the hands and the checker are ours. The window's approve() answers land in run_dir/approvals."""
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from .session import file_approver
+
+    if run_goal is None:
+        from .agent.runner import run_goal
+    run_dir["path"] = Path(tempfile.mkdtemp(prefix="cu-loop-"))
+
+    def emit(method: str, params: dict) -> None:
+        if method in ("finished", "run"):  # the sidecar sends the one ending, with the checker's verdict
+            return
+        notify(method, params)
+
+    approve_fn = file_approver(str(run_dir["path"] / "events.jsonl"), notify)
+    _, summary = run_goal(goal, app, emit, brain_kind=os.environ.get("CU_LOOP_BRAIN", "claude"),
+                          model=os.environ.get("CU_CLAUDE_MODEL") or None, approve=approve_fn, should_stop=should_stop)
+    return summary
+
+
 def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") -> None:
     from .brain.chat import OpenAICompatibleChat
     from .desktop_run import APPS, run_task
@@ -328,6 +353,8 @@ def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") ->
             shots = sorted(Path("runs/realtest").glob("paint_*.png"))  # a real Paint screenshot, if captured
             return showcase_runner(goal, app, on_step, should_stop, plan=plan, on_check=on_check,
                                    emit=sidecar.notify, screen=str(shots[-1]) if shots else None)
+        if brain == "loop":
+            return loop_runner(goal, app, sidecar.notify, should_stop, run_dir)
         if brain == "claude":
             from .claude_brain import run_claude
 
@@ -348,9 +375,12 @@ def main(model: str, max_steps: int, demo: bool = False, brain: str = "groq") ->
         p = make_plan(OpenAICompatibleChat.groq(model=model), command, list(APPS), app)
         return {"app": p.app, "goal": p.goal, "steps": p.steps}
 
-    label = "demo" if demo else "claude" if brain == "claude" else f"groq · {model}"
+    import os
+
+    label = ("demo" if demo else f"our loop · {os.environ.get('CU_LOOP_BRAIN', 'claude')}" if brain == "loop"
+             else "claude" if brain == "claude" else f"groq · {model}")
     print(f"sidecar ready (brain: {label}); reading JSON-RPC on stdin", file=sys.stderr)
-    claude = brain == "claude" and not demo
+    claude = brain in ("claude", "loop") and not demo  # both pick the target themselves and drive websites too
     targets = list(APPS)
     if claude:  # the claude brain drives websites too (web_surface.SITES), through the agent's Chrome
         from .web_surface import SITES

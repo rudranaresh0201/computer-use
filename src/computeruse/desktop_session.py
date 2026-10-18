@@ -69,11 +69,14 @@ class DesktopSurface:
                 f"Elements (act on them by id; only named ones):\n{listing}")
         return text, self.shot
 
-    def state(self) -> bytes:
-        return self.shoot().small
+    def state(self) -> tuple[str, bytes]:
+        """The element names (a display's new value shows up here even when it is a few pixels: Calculator's
+        "Expression is 7 +" was missed by the thumbnail alone) and a thumbnail (drawing shows up only here)."""
+        names = "|".join(getattr(e, "name", "") or "" for e in self.tree())
+        return names, self.shoot().small
 
-    def changed(self, before: bytes, after: bytes) -> bool:
-        return differs(before, after)
+    def changed(self, before: tuple[str, bytes], after: tuple[str, bytes]) -> bool:
+        return before[0] != after[0] or differs(before[1], after[1])
 
     def verify(self, kind: str, value: str) -> Optional[tuple[str, str]]:
         if kind != "text":

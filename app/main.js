@@ -10,7 +10,7 @@
 // npm run demo        scripted steps, no mouse
 // CU_SNAPSHOT=x.png   save a picture of the window and quit (self-check)
 
-const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -31,7 +31,9 @@ function toPage(msg) {
 }
 
 function startSidecar() {
-  const brain = process.env.CU_BRAIN || 'claude'; // claude: Claude Code drives the MCP server; groq: the free fallback
+  // loop: our agent loop, router and grounder, with Claude (or CU_LOOP_BRAIN=groq) only deciding;
+  // claude: Claude Code drives the MCP server; groq: the earlier desktop loop
+  const brain = process.env.CU_BRAIN || 'loop';
   sidecar = spawn(SIDECAR, DEMO ? ['sidecar', '--demo'] : ['sidecar', '--brain', brain], { cwd: REPO, windowsHide: true });
   readline.createInterface({ input: sidecar.stdout }).on('line', (line) => {
     let msg;
@@ -73,10 +75,15 @@ function request(method, params = {}) {
 ipcMain.handle('agent:request', (_event, method, params) => request(method, params));
 
 function createWindow() {
+  // CU_LAYOUT=split (for recording): this window on the right 36% of the screen; the sidecar puts the
+  // app or the agent's Chrome on the left 64% (agent/runner.py place_target), so both are in frame.
+  const split = process.env.CU_LAYOUT === 'split';
+  const area = screen.getPrimaryDisplay().workArea;
+  const right = Math.round(area.width * 0.64);
   win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
+    ...(split ? { x: area.x + right, y: area.y, width: area.width - right, height: area.height }
+              : { width: 1280, height: 800 }),
+    minWidth: split ? 480 : 900,
     minHeight: 600,
     backgroundColor: '#0b0d10',
     title: 'computer-use',

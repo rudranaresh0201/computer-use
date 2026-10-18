@@ -257,6 +257,9 @@ window.agent.onEvent((msg) => {
     case 'thought':
       addThought(p.text);
       break;
+    case 'refused': // the router sent the brain's intent back: a nameless element, or bare coordinates
+      addThought(`Router refused "${p.intent}": ${p.reason}`);
+      break;
     case 'screen':
       showScreen(p.src);
       break;
@@ -272,7 +275,7 @@ window.agent.onEvent((msg) => {
     }
     case 'locate': {
       // our grounder proposed a point; the click that follows (if the model accepts it) is its own step
-      const a = { kind: 'locate', label: `locate "${p.what}"`, channel: 'eyes', note: `${p.seconds}s on this laptop's CPU` };
+      const a = { kind: 'locate', label: `locate "${p.what}"`, channel: 'eyes', note: `${p.seconds}s, our grounder` };
       addAction(a);
       $('last').textContent = `${humanize(a)} · eyes`;
       pointAt(p.x, p.y, 'eyes');

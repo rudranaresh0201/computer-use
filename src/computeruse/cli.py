@@ -128,8 +128,10 @@ def main() -> None:
     sidecar_parser.add_argument("--model", default="openai/gpt-oss-20b", help="Groq model id")
     sidecar_parser.add_argument("--max-steps", type=int, default=20)
     sidecar_parser.add_argument("--demo", action="store_true", help="Scripted steps, no mouse or keyboard")
-    sidecar_parser.add_argument("--brain", choices=["claude", "groq"], default="groq",
-                                help="claude: Claude Code drives the MCP server (your subscription); groq: the free fallback")
+    sidecar_parser.add_argument("--brain", choices=["loop", "claude", "groq"], default="loop",
+                                help="loop: our agent loop, router and grounder, with the brain set by CU_LOOP_BRAIN "
+                                     "(claude, default, or groq); claude: Claude Code drives the MCP server; "
+                                     "groq: the earlier desktop loop")
 
     subparsers.add_parser("mcp", help="The desktop as an MCP server over stdio, for Claude Code or any MCP host")
     subparsers.add_parser("chrome", help="Open the agent's own Chrome profile to sign in (Google, Tinkercad) once")
@@ -158,15 +160,15 @@ def main() -> None:
     serve_parser.add_argument("--device", default="cuda")
     serve_parser.add_argument("--long-edge", type=int, default=1568, help="1568 = the size the eval scored")
 
-    agent_parser = subparsers.add_parser("agent", help="Our loop on a real website, Claude as the brain (agent/live.py)")
+    agent_parser = subparsers.add_parser("agent", help="One goal on any app or site: our loop, Claude as the brain (agent/live.py)")
     agent_parser.add_argument("goal", nargs="?", default="", help="omit it to type the goal into the panel")
     agent_parser.add_argument("--site", default=None, help="a known site: sheets, docs, gmail, tinkercad, excalidraw")
     agent_parser.add_argument("--url", default=None, help="or any URL")
+    agent_parser.add_argument("--app", default=None, help="a Windows app: calculator, notepad_pp, paint")
     agent_parser.add_argument("--brain", choices=["claude", "groq"], default="claude")
     agent_parser.add_argument("--arm", choices=["paper", "paper_blind", "vision", "tree", "both"], default="paper")
     agent_parser.add_argument("--eyes", choices=["none", "remote"], default="remote")
     agent_parser.add_argument("--model", default=None)
-    agent_parser.add_argument("--check", default=None, help="excalidraw | tinkercad (stacked solids, from STL) | circuit (Tinkercad Circuits)")
     agent_parser.add_argument("--expect", default="", help="labels the drawing must contain, comma-separated")
     agent_parser.add_argument("--connect", default="", help="arrows that must exist, e.g. 'Brain>Router,Router>Eyes'")
     agent_parser.add_argument("--keep", action="store_true", help="don't clear the board first")
@@ -180,8 +182,8 @@ def main() -> None:
         from .agent.checks import parse_connect
         from .agent.live import run_live
 
-        ep = run_live(args.goal, site=args.site, url=args.url, brain_kind=args.brain, arm=args.arm,
-                      eyes_kind=args.eyes, model=args.model, check=args.check,
+        ep = run_live(args.goal, site=args.site, url=args.url, app=args.app, brain_kind=args.brain, arm=args.arm,
+                      eyes_kind=args.eyes, model=args.model,
                       expect=[s.strip() for s in args.expect.split(",") if s.strip()],
                       connect=parse_connect(args.connect), fresh=not args.keep, panel=not args.no_panel,
                       max_turns=args.max_turns, record=args.record)
