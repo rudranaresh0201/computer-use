@@ -238,10 +238,10 @@ def figures(n):
     ax.bar(conds, h, color="#3c9f6b", label="help: tree right, vision wrong")
     ax.bar(conds, k, color="#c8473f", label="harm: tree wrong, vision right")
     for i, c in enumerate(conds):
-        ax.text(i, min(k[i], 0) - 4, f"{n['test_a'][c]['fallback_minus_vision']:+.0f}", ha="center", fontsize=7)
+        ax.text(i, min(k[i], 0) - 5, f"net {n['test_a'][c]['fallback_minus_vision']:+.0f}", ha="center", fontsize=7)
     ax.axhline(0, c="black", lw=0.6)
     ax.set_ylabel("% of items")
-    ax.set_ylim(-35, 15)
+    ax.set_ylim(-60, 15)
     ax.legend(fontsize=6, frameon=False, loc="lower left")
     save(fig, "test_a_help_harm")
 
@@ -281,12 +281,59 @@ def figures(n):
     save(fig, "screenspot_v2")
 
 
+def same_items():
+    """The three policies on the SAME 250 items (first 50 test pages): tree first else vision, vision
+    alone, and llm_named -- the headline comparison, with nothing mixed across subsets."""
+    llm = {r["id"]: r for r in jl(ROOT / "runs/tree_llm_test.jsonl")}
+    scored = {r["id"]: r for r in json.load(open(ROOT / "runs/hub/compare-v1/scored.json"))}
+    vis = {r["example_id"]: r["hit"] for r in jl(ROOT / "runs/hub/compare-v1/results/step-01179.jsonl")}
+    ids = sorted(llm)
+    named = {i: (llm[i]["hit"] if llm[i]["ref"] and (llm[i]["name"] or "").strip() else vis[i]) for i in ids}
+    out = {"n": len(ids), "fallback": pct(sum(scored[i]["hits"]["fallback"] for i in ids), len(ids)),
+           "vision": pct(sum(vis[i] for i in ids), len(ids)), "llm_named": pct(sum(named.values()), len(ids))}
+    return out
+
+
+def tweet_figure(n):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.rcParams.update({"font.family": "sans-serif", "font.size": 15, "axes.spines.top": False,
+                         "axes.spines.right": False, "axes.spines.left": False})
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5.6), gridspec_kw={"width_ratios": [3, 2]})
+    s = n["same_items"]
+    b = n["test_b"]["test_held_out_app/nameless"]["accuracy"]
+    panels = [(axes[0], [s["fallback"], s["vision"], s["llm_named"]],
+               ["tree first,\nelse vision", "vision alone\n(our 2B grounder)", "our gate\n(named tree pick,\nelse vision)"],
+               ["#c8473f", "#2b5fab", "#3c9f6b"], f"Generated apps, 5 kinds of target (n={s['n']})"),
+              (axes[1], [b["fallback"], b["vlm"]], ["tree first,\nelse vision", "vision alone"],
+               ["#c8473f", "#2b5fab"], "Real Windows apps, target missing\nfrom the tree (n=790)")]
+    for ax, vals, labels, colors, title in panels:
+        bars = ax.bar(range(len(vals)), vals, color=colors, width=0.62)
+        for bar, v in zip(bars, vals):
+            ax.text(bar.get_x() + bar.get_width() / 2, v + 1.5, f"{v:.0f}%", ha="center", fontsize=18, fontweight="bold")
+        ax.set_xticks(range(len(vals)), labels, fontsize=13)
+        ax.set_ylim(0, 100)
+        ax.set_yticks([])
+        ax.set_title(title, fontsize=14, color="#444")
+    fig.suptitle("Click accuracy. Trusting the accessibility tree first makes an agent WORSE than vision alone.",
+                 fontsize=16, fontweight="bold", y=0.99)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(FIG / "tweet_headline.png", dpi=150)
+    plt.close(fig)
+
+
 def main():
     n = {"test_a": test_a(), "test_b": test_b(), "gate_audit": gate_audit(), "grounder": grounder(),
-         "screenspot_v2": screenspot(), "uia_exposure": exposure(), "learning_curve": LEARNING_CURVE}
+         "screenspot_v2": screenspot(), "uia_exposure": exposure(), "learning_curve": LEARNING_CURVE,
+         "same_items": same_items()}
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "numbers.json").write_text(json.dumps(n, indent=1), encoding="utf-8")
     figures(n)
+    tweet_figure(n)
+    print("same 250 items:", n["same_items"])
     for c in ("C1", "C2", "C3", "C4", "C5", "all"):
         print("A", c, {k: v for k, v in n["test_a"][c].items() if k != "accuracy"})
     for k, v in n["test_b"].items():
