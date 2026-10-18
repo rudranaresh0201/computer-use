@@ -35,10 +35,33 @@ def console_approve(reason: str) -> bool:
         return False
 
 
+def start_recording(path: Path, fps: int = 20):
+    """The whole screen to an mp4 (ffmpeg's gdigrab, from the imageio-ffmpeg wheel: no install, no admin).
+    Stop it by writing "q" to its stdin, which lets it finish the file properly."""
+    import subprocess
+
+    import imageio_ffmpeg
+
+    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-f", "gdigrab", "-framerate", str(fps), "-draw_mouse", "0",
+           "-i", "desktop", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", str(path)]
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def stop_recording(proc) -> None:
+    if proc and proc.poll() is None:
+        proc.stdin.write(b"q")
+        proc.stdin.flush()
+        try:
+            proc.wait(timeout=30)
+        except Exception:  # noqa: BLE001
+            proc.kill()
+
+
 def run_live(goal: str, site: Optional[str] = None, url: Optional[str] = None, brain_kind: str = "claude",
              arm: str = "paper", eyes_kind: str = "remote", model: Optional[str] = None,
              check: Optional[str] = None, expect: list[str] = (), connect: list[tuple[str, str]] = (),
-             fresh: bool = True, panel: bool = True, max_turns: int = 40, hold: bool = True):
+             fresh: bool = True, panel: bool = True, max_turns: int = 40, hold: bool = True,
+             record: bool = False):
     from ..session import Session
     from ..web.cdp import AgentChrome
     from ..web_surface import SITES, WebSurface
@@ -95,6 +118,11 @@ def run_live(goal: str, site: Optional[str] = None, url: Optional[str] = None, b
         raise SystemExit(f"unknown --check {check!r} (excalidraw, tinkercad, circuit)")
     session.shot = None  # the fresh page replaced what open() saw
 
+    recorder = None
+    if record:
+        video = OUT / f"{stamp}.mp4"
+        recorder = start_recording(video)
+        print(f"recording the screen to {video}")
     if not goal:
         if not view:
             raise SystemExit("give a goal, or keep the panel on to type one there")
@@ -114,6 +142,10 @@ def run_live(goal: str, site: Optional[str] = None, url: Optional[str] = None, b
             outro(chrome.page())
         except Exception as e:  # noqa: BLE001 -- the outro is for the video; the result is already saved
             print(f"outro skipped: {e.__class__.__name__}: {str(e)[:120]}")
+    if recorder:
+        time.sleep(3)  # end on the verdict for a beat
+        stop_recording(recorder)
+        print(f"video: {OUT / (stamp + '.mp4')}")
 
     print(f"\n{'PASSED' if ep.passed else 'NOT PASSED'}  status={ep.status}  actions={sum(1 for t in ep.turns if t.channel)}"
           f"  channels={ep.channels()}  {ep.seconds:.0f}s")

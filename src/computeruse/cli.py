@@ -172,6 +172,7 @@ def main() -> None:
     agent_parser.add_argument("--keep", action="store_true", help="don't clear the board first")
     agent_parser.add_argument("--no-panel", action="store_true")
     agent_parser.add_argument("--max-turns", type=int, default=40)
+    agent_parser.add_argument("--record", action="store_true", help="record the screen to runs/agent/live/<stamp>.mp4")
 
     args = parser.parse_args()
 
@@ -183,7 +184,7 @@ def main() -> None:
                       eyes_kind=args.eyes, model=args.model, check=args.check,
                       expect=[s.strip() for s in args.expect.split(",") if s.strip()],
                       connect=parse_connect(args.connect), fresh=not args.keep, panel=not args.no_panel,
-                      max_turns=args.max_turns)
+                      max_turns=args.max_turns, record=args.record)
         sys.exit(0 if ep.passed else 1)
     elif args.command == "bench":
         from .agent.bench import run_bench
