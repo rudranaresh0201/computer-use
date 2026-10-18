@@ -1,0 +1,38 @@
+Loading weights:   0%|          | 0/729 [00:00<?, ?it/s]Loading weights:  14%|#3        | 99/729 [00:00<00:00, 981.07it/s]Loading weights: 100%|##########| 729/729 [00:00<00:00, 4027.86it/s]
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files: 100%|##########| 2/2 [00:00<00:00, 5461.33it/s]
+C:\Users\Rudra\Desktop\New folder\project computer use\.venv\Lib\site-packages\peft\config.py:220: UserWarning: Unexpected keyword arguments ['monteclora_config', 'velora_config'] for class LoraConfig, these are ignored. This probably means that you're loading a configuration file that was saved using a higher version of the library and additional parameters have been introduced since. It is highly recommended to upgrade the PEFT version before continuing (e.g. by running `pip install -U peft`).
+  warnings.warn(
+C:\Users\Rudra\Desktop\New folder\project computer use\.venv\Lib\site-packages\torch\ao\nn\quantized\modules\utils.py:72: UserWarning: torch.quantize_per_tensor, torch.quantize_per_channel and other quantized tensor creation functions that produce tensors with dtype torch.quint8, torch.qint8, and torch.qint32 are deprecated and will be removed in a future PyTorch release. Please see https://github.com/pytorch/pytorch/issues/184982 for more information. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\quantized\Quantizer.cpp:116.)
+  qweight = torch.quantize_per_tensor(
+loaded in 75s, int8, 0.6 GB resident
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+   1024  22.2s miss 'Select Search from the menu' -> 'File'
+   1024  19.2s miss 'Click Window' -> 'Window 4'
+   1024  20.0s miss 'Select Edit from the menu' -> '(149,97)'
+   1024  19.5s miss 'Click Maximize' -> 'x'
+   1024  20.2s miss 'Select Line down' -> '100'
+   1024  20.6s miss 'Check Advanced view' -> '(x,81)'
+   1024  20.7s miss 'Open the Find tab' -> '0'
+   1024  21.1s miss 'Open the Find in Files tab' -> '(46,183)'
+   1024  21.6s miss 'Click on Disk drives' -> '(x,468)'
+   1024  23.0s miss 'Click Minimize' -> 'target 1'
+   1024  27.8s hit  'Open Help' -> '(375,97)'
+   1024  29.3s miss 'Press the Share Audio button' -> 'Click the Share Audio button to open the audio sharing options.'
+edge 1024 (1024, 576): median 20.9s, hits 1/12
+    768  16.2s miss 'Select Search from the menu' -> 'user\n(468,137),(508,175)'
+    768  13.4s miss 'Click Window' -> '<ref>Window 1</ref>'
+    768  12.2s miss 'Select Edit from the menu' -> '<point>menuEdit</point>'
+    768  11.3s miss 'Click Maximize' -> 'Click the maximize button in the dialog window.'
+    768  11.4s miss 'Select Line down' -> '(468,324)'
+    768  11.6s miss 'Check Advanced view' -> '(416,538)'
+    768  13.7s miss 'Open the Find tab' -> 'Find next'
+    768  12.5s miss 'Open the Find in Files tab' -> '(x,137)'
+    768  12.6s miss 'Click on Disk drives' -> 'Click on Disk drives'
+    768  12.6s miss 'Click Minimize' -> '50,517'
+    768  14.1s miss 'Open Help' -> '(327,83)'
+    768  14.4s miss 'Press the Share Audio button' -> '<ref point="right">Get Effects</ref>'
+edge 768 (768, 432): median 12.6s, hits 0/12
+   1568  80.7s miss 'Select Search from the menu' -> '1'
+   1568  79.3s miss 'Click Window' -> 'Image'
+   1568  80.4s miss 'Select Edit from the menu' -> 'Edit'
+   1568  75.3s miss 'Click Maximize' -> 'Click to maximize the Character Map window.'

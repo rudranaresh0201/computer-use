@@ -97,6 +97,8 @@ all fixed.
 | G8 | Desktop runs take over the person's mouse | the web surface already avoids this; the desktop can't | document it; a VM/second-desktop later |
 | G9 | The Groq brain fumbled Calculator; only `claude -p` works well | "any MCP host" is claimed, only one is tested | P6 below |
 | G10 | Runs from the repo; no installer, Windows only | fine for a demo, not for others to try | later |
+| **G11** | **The eyes are broken on this laptop.** P1 (2026-10-18, int8 on CPU, held-out apps): 1/12 hits at 1024 px, 0/12 at 768, ~20 s a call; answers like "File", "x", "Window 4" instead of points. Kaggle eval on the same apps: ~46%. Prime suspect: int8 quantization of every Linear layer incl. the vision tower. bf16 needs ~5.4 GB; only 3.4 GB free | the paper arm's whole point is our grounder; with it broken, arm C measures nothing | P1b: (a) the same 12 examples through `eyes.py` in bf16 on Kaggle -- isolates the code path from the quantization; (b) int8 on the language model only, vision tower kept bf16; (c) else serve the eyes from a Kaggle GPU during runs |
+| G12 | The approval gate is a keyword list: "Send me product updates" was blocked (false alarm), and an icon-only Send button has no name, so it would NOT be blocked | a gate that misses a nameless Send is the dangerous direction | judge by what the click does (e.g. the page's form action, a confirmation screen), or ask the brain to declare irreversible steps and gate those |
 
 ## 5. Product experiments (P-series)
 
