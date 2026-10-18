@@ -191,7 +191,7 @@ def figures(n):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    plt.rcParams.update({"font.family": "serif", "font.size": 9, "axes.spines.top": False, "axes.spines.right": False,
+    plt.rcParams.update({"font.family": "serif", "font.serif": ["Times New Roman", "DejaVu Serif"], "font.size": 9, "axes.spines.top": False, "axes.spines.right": False,
                          "figure.dpi": 150})
     FIG.mkdir(parents=True, exist_ok=True)
 
@@ -253,7 +253,7 @@ def figures(n):
     w = 0.16
     for j, (a, col) in enumerate(zip(barms, colors)):
         vals = [n["test_b"][f"test_held_out_app/{s}"]["accuracy"][a] for s in states]
-        ax.bar([i + (j - 2) * w for i in range(3)], vals, w, label=a, color=col)
+        ax.bar([i + (j - 2) * w for i in range(3)], vals, w, label={"vlm": "vision"}.get(a, a), color=col)
     ax.set_xticks(range(3), ["tree intact", "target nameless", "target absent"], fontsize=7)
     ax.set_ylabel("click accuracy (%)")
     ax.axhline(n["test_b"]["test_held_out_app/intact"]["accuracy"]["vlm"], ls=":", c="#2b5fab", lw=0.8)
@@ -269,6 +269,23 @@ def figures(n):
     ax.set_ylabel("hit rate (%), unseen apps")
     ax.legend(fontsize=6, frameon=False)
     save(fig, "size_quartiles")
+
+    # 0. the paper's Figure 1: the headline on the same items, then real screens with a blind tree
+    fig, axes = plt.subplots(1, 2, figsize=(6.6, 2.3), gridspec_kw={"width_ratios": [3, 2]})
+    s, b = n["same_items"], n["test_b"]["test_held_out_app/nameless"]["accuracy"]
+    for ax, vals, labels, colors, title in [
+            (axes[0], [s["fallback"], s["vision"], s["llm_named"]], ["tree first,\nelse vision", "vision alone", "named-pick\ngate (ours)"],
+             ["#c8473f", "#2b5fab", "#3c9f6b"], f"(a) generated apps, conditions C1 to C5 (n={s['n']})"),
+            (axes[1], [b["fallback"], b["vlm"]], ["tree first,\nelse vision", "vision alone"], ["#c8473f", "#2b5fab"],
+             "(b) real Windows apps,\ntarget not in tree (n=790)")]:
+        bars = ax.bar(range(len(vals)), vals, color=colors, width=0.6)
+        for bar, v in zip(bars, vals):
+            ax.text(bar.get_x() + bar.get_width() / 2, v + 2, f"{v:.1f}", ha="center", fontsize=8, fontweight="bold")
+        ax.set_xticks(range(len(vals)), labels, fontsize=7.5)
+        ax.set_ylim(0, 100)
+        ax.set_ylabel("click accuracy (%)", fontsize=8)
+        ax.set_title(title.replace("--", "–"), fontsize=8)
+    save(fig, "teaser")
 
     # 6. ScreenSpot-v2 cells
     fig, ax = plt.subplots(figsize=(3.4, 2.0))
