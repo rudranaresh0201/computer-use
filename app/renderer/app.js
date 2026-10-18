@@ -368,9 +368,10 @@ function pickTarget(name) {
   const ping = await window.agent.request('ping');
   const brain = ping.result?.brain ?? '';
   $('brain-name').textContent = DEMO ? 'demo · scripted, no mouse' : brain === 'claude' ? 'Claude · via MCP · moves your mouse' : `${brain} · moves your mouse`;
-  $('goal').placeholder = EXAMPLES[0];
+  const recording = params.get('autorun');  // a recorded take: no example text, it looks like a scripted run
+  $('goal').placeholder = recording ? '' : EXAMPLES[0];
   let n = 0;
-  setInterval(() => { if (!$('goal').value) $('goal').placeholder = EXAMPLES[++n % EXAMPLES.length]; }, 4000);
+  if (!recording) setInterval(() => { if (!$('goal').value) $('goal').placeholder = EXAMPLES[++n % EXAMPLES.length]; }, 4000);
   const reply = await window.agent.request('apps');
   for (const name of ['', ...(reply.result?.apps ?? [])]) {
     const t = TARGETS[name] ?? { label: name, icon: 'box' };
