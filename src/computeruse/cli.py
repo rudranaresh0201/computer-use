@@ -158,9 +158,34 @@ def main() -> None:
     serve_parser.add_argument("--device", default="cuda")
     serve_parser.add_argument("--long-edge", type=int, default=1568, help="1568 = the size the eval scored")
 
+    agent_parser = subparsers.add_parser("agent", help="Our loop on a real website, Claude as the brain (agent/live.py)")
+    agent_parser.add_argument("goal")
+    agent_parser.add_argument("--site", default=None, help="a known site: sheets, docs, gmail, tinkercad, excalidraw")
+    agent_parser.add_argument("--url", default=None, help="or any URL")
+    agent_parser.add_argument("--brain", choices=["claude", "groq"], default="claude")
+    agent_parser.add_argument("--arm", choices=["paper", "paper_blind", "vision", "tree", "both"], default="paper")
+    agent_parser.add_argument("--eyes", choices=["none", "remote"], default="remote")
+    agent_parser.add_argument("--model", default=None)
+    agent_parser.add_argument("--check", default=None, help="excalidraw: verify the drawing from the app's own save")
+    agent_parser.add_argument("--expect", default="", help="labels the drawing must contain, comma-separated")
+    agent_parser.add_argument("--connect", default="", help="arrows that must exist, e.g. 'Brain>Router,Router>Eyes'")
+    agent_parser.add_argument("--keep", action="store_true", help="don't clear the board first")
+    agent_parser.add_argument("--no-panel", action="store_true")
+    agent_parser.add_argument("--max-turns", type=int, default=40)
+
     args = parser.parse_args()
 
-    if args.command == "bench":
+    if args.command == "agent":
+        from .agent.checks import parse_connect
+        from .agent.live import run_live
+
+        ep = run_live(args.goal, site=args.site, url=args.url, brain_kind=args.brain, arm=args.arm,
+                      eyes_kind=args.eyes, model=args.model, check=args.check,
+                      expect=[s.strip() for s in args.expect.split(",") if s.strip()],
+                      connect=parse_connect(args.connect), fresh=not args.keep, panel=not args.no_panel,
+                      max_turns=args.max_turns)
+        sys.exit(0 if ep.passed else 1)
+    elif args.command == "bench":
         from .agent.bench import run_bench
 
         path, summary = run_bench(args.brain, args.arm, args.tasks.split(","), list(range(1, args.seeds + 1)),

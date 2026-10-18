@@ -92,7 +92,7 @@ def note(rng: random.Random) -> SuiteTask:
 window.__saved = null; window.__trashed = false;
 document.querySelectorAll('.toolbar button').forEach(b => b.onclick = () => {{
   const k = b.dataset.k;
-  if (k === 'save') {{ window.__saved = t.value.trim(); status.textContent = 'Saved.'; }}
+  if (k === 'save') {{ window.__saved = t.value.trim(); document.getElementById('status').textContent = 'Saved.'; }}
   if (k === 'trash') {{ t.value = ''; window.__trashed = true; }}
 }});
 document.addEventListener('keydown', ev => {{ if (ev.ctrlKey && ev.key.toLowerCase() === 's') ev.preventDefault(); }});

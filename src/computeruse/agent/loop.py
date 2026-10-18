@@ -157,6 +157,7 @@ class Agent:
 
     def run(self) -> Episode:
         start = time.time()
+        self.session.events("run", {"goal": self.goal, "brain": self.brain.name, "arm": self.router.arm})
         final = self.graph.invoke({"turns": 0, "failures": 0, "early_done": 0, "note": "", "status": ""},
                                   {"recursion_limit": self.max_turns * 6 + 20})
         ep = self.episode
@@ -229,8 +230,10 @@ class Agent:
         except Unroutable as e:
             turn.ok, turn.result = False, str(e)
             self.history.append(f"{turn.n}. {turn.intent} -- refused: {e}")
+            self.session.events("refused", {"intent": turn.intent, "reason": str(e)})
             return {"grounded": None, "note": f"Refused: {e}", "failures": state.get("failures", 0) + 1}
         turn.channel, turn.why, turn.eyes_seconds = g.channel, g.why, round(g.eyes_seconds, 1)
+        self.session.events("route", {"intent": turn.intent, "channel": g.channel.split("+")[0], "why": g.why})
         if g.channel.startswith("eyes") and g.x is not None:
             self.session.located[(g.x, g.y)] = intent.target or g.why  # the Session reports it as "eyes"
         return {"grounded": g}
