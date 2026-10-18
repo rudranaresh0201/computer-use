@@ -140,6 +140,18 @@ under no_grad on purpose. LoRA sits only on the language model, so it still gets
   AUROC for hit vs miss. If it separates, it becomes a guard signal (trust the tree when the eyes are unsure)
   and lets the agent ask instead of misclicking.
 
+### Tier 2b: the teacher-blindness gap (found 2026-10-18)
+
+UIA can only label elements it names, so every training example is a *named* element, but the grounder's job
+in the product is the *nameless* ones. Test A C2 (unnamed icons) is vision's weak cell (38-40).
+
+- [ ] **E15 Measure it.** On Test C labels, split the hand-drawn targets into "has a UIA name" / "no UIA name /
+  not in the tree" and score the grounder on each. A large gap means the training distribution is the bottleneck,
+  not model size. Free once E4's labels exist.
+- [ ] **E16 Fix it, cheaply.** Make nameless-looking training examples from named ones: mask the visible label
+  text, or describe the element by function/position ("the icon left of Save", "the magnifier icon") via an LLM
+  rewrite, then retrain (~8 GPU-h) and rescore C2 + Test C. If E9 (paraphrase) runs, combine the two in one retrain.
+
 ### Tier 3: agent level, where the research meets the product
 
 - [ ] **E12 CPU eyes: latency vs accuracy (CPU).** `scripts/bench_grounder_cpu.py --n 12 --edges 1568,1024,768`,
