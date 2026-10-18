@@ -82,8 +82,12 @@ def quantize_int8(model):
 class Grounder:
     """Loads once, then answers locate() calls from one thread."""
 
-    def __init__(self, long_edge: int = LONG_EDGE, threads: Optional[int] = None, int8: bool = INT8) -> None:
-        self.long_edge, self.threads, self.int8 = long_edge, threads, int8
+    def __init__(self, long_edge: int = LONG_EDGE, threads: Optional[int] = None, int8: bool = INT8,
+                 device: str = "cpu") -> None:
+        # on a GPU: the eval's own setup (training/train_lora's precision, no quantization), so the
+        # live eyes are the model that scored 46.5 -- the CPU int8 path measured 1/12 (G11)
+        self.long_edge, self.threads, self.device = long_edge, threads, device
+        self.int8 = int8 and device == "cpu"
         self.model = self.processor = self.tokenizer = None
         self.load_seconds = 0.0
         self._lock = threading.Lock()
@@ -104,8 +108,14 @@ class Grounder:
         start = time.perf_counter()
         if self.threads:
             torch.set_num_threads(self.threads)
-        base = AutoModelForImageTextToText.from_pretrained(MODEL_ID, dtype=torch.bfloat16,
-                                                           attn_implementation="sdpa")
+        dtype = torch.bfloat16
+        if self.device != "cpu":
+            from .training.train_lora import resolve_precision, torch_dtype_for
+
+            dtype = torch_dtype_for(resolve_precision())
+        base = AutoModelForImageTextToText.from_pretrained(MODEL_ID, dtype=dtype, attn_implementation="sdpa")
+        if self.device != "cpu":
+            base = base.to(self.device)
         # merged: one set of weights, no adapter detour on every layer at inference
         self.model = PeftModel.from_pretrained(base, str(adapter_dir())).merge_and_unload().eval()
         if self.int8:

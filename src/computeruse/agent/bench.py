@@ -1,9 +1,12 @@
 """
 `computeruse bench`: the A/B/C/D comparison on the sandbox suite (suite.py), in a headless Chrome.
 
-    computeruse bench --brain groq --arm paper_blind --eyes real --seeds 3      # arm D, free brain
+    computeruse bench --brain groq --arm paper_blind --eyes remote --seeds 3    # arm D, free brain
     computeruse bench --brain claude --arm vision --seeds 3                     # arm A
-    computeruse bench --brain claude --arm paper --eyes real --seeds 3          # arm C
+    computeruse bench --brain claude --arm tree --seeds 3                       # arm B
+    computeruse bench --brain claude --arm paper --eyes remote --seeds 3        # arm C
+
+--eyes remote: our grounder on a Kaggle T4 (eyes_remote.py); --eyes real: on this CPU (int8, G11).
 
 Each episode is scored by the page's own checker, never by the agent's claim. Output:
 runs/agent/<stamp>-<brain>-<arm>.jsonl (one episode per line, full trace) and a summary with the
@@ -103,6 +106,11 @@ def run_bench(brain_kind: str, arm: str, tasks: list[str], seeds: list[int], eye
     if eyes is None and eyes_kind == "real":
         log("loading our grounder (CPU) ...")
         eyes = grounder_eyes()
+    if eyes is None and eyes_kind == "remote":  # our grounder on a GPU elsewhere (eyes_remote.py)
+        from ..eyes_remote import RemoteEyes
+
+        eyes = RemoteEyes.from_env()
+        log(f"eyes: {eyes.url} -> {eyes.health()}")
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{time.strftime('%Y%m%d-%H%M%S')}-{brain.name.replace('/', '_')}-{arm}.jsonl"
     rows: list[dict[str, Any]] = []

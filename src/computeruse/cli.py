@@ -143,9 +143,41 @@ def main() -> None:
     label_parser.add_argument("--port", type=int, default=8765)
     subparsers.add_parser("coverage", help="Test D: how much of what a person can click does UIA expose, per app")
 
+    bench_parser = subparsers.add_parser("bench", help="The A/B/C/D comparison on the sandbox suite (agent/bench.py)")
+    bench_parser.add_argument("--brain", choices=["claude", "groq"], default="groq")
+    bench_parser.add_argument("--arm", choices=["paper", "paper_blind", "vision", "tree", "both"], default="paper_blind")
+    bench_parser.add_argument("--eyes", choices=["none", "remote", "real"], default="none",
+                              help="remote: our grounder on a GPU (CU_EYES_URL/CU_EYES_TOKEN); real: on this CPU")
+    bench_parser.add_argument("--tasks", default="signup,note,mixer,archive,connect")
+    bench_parser.add_argument("--seeds", type=int, default=3, help="seeds 1..N")
+    bench_parser.add_argument("--model", default=None)
+    bench_parser.add_argument("--headed", action="store_true", help="show the browser")
+
+    serve_parser = subparsers.add_parser("eyes-serve", help="Serve our grounder over HTTP from a GPU (eyes_remote.py)")
+    serve_parser.add_argument("--port", type=int, default=8000)
+    serve_parser.add_argument("--device", default="cuda")
+    serve_parser.add_argument("--long-edge", type=int, default=1568, help="1568 = the size the eval scored")
+
     args = parser.parse_args()
 
-    if args.command == "capture":
+    if args.command == "bench":
+        from .agent.bench import run_bench
+
+        path, summary = run_bench(args.brain, args.arm, args.tasks.split(","), list(range(1, args.seeds + 1)),
+                                  eyes_kind=args.eyes, model=args.model, headed=args.headed)
+        print(f"\n{path}\npass {summary['pass_rate']:.0%} {summary['pass_ci95']}  false success "
+              f"{summary['false_success']}/{summary['claimed_done']}  channels {summary['channels']}")
+    elif args.command == "eyes-serve":
+        from .eyes import Grounder
+        from .eyes_remote import grounder_locate, serve
+
+        grounder = Grounder(long_edge=args.long_edge, device=args.device).load()
+        server = serve(grounder_locate(grounder), port=args.port,
+                       info={"device": args.device, "long_edge": args.long_edge})
+        print(f"eyes loaded in {grounder.load_seconds:.0f}s; serving on :{args.port}")
+        print(f"token: {server.token}")
+        server.serve_forever()
+    elif args.command == "capture":
         from .realtest.capture import capture
 
         capture(args.app, delay=args.delay)
